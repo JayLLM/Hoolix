@@ -1,6 +1,6 @@
 {
   "name": "hoolix",
-  "version": "0.0.1-beta.2",
+  "version": "0.0.1-beta.3",
   "description": "Forge documentation into powerful, secure Hoolix MCP servers. Production-grade CLI for turning docs URLs into hostable MCP servers for Grok, Claude, Cursor, and other agents.",
   "keywords": [
     "mcp",
