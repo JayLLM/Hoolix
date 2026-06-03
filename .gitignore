@@ -1,0 +1,83 @@
+# ===========================================
+# Hoolix .gitignore
+# Production-grade CLI with binary distribution
+# ===========================================
+
+# Dependencies
+node_modules/
+bun.lockb
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Build outputs
+dist/
+dist-bin/
+*.tsbuildinfo
+*.js.map
+*.d.ts.map
+
+# Prebuilt / local release binaries
+hoolix
+hoolix.exe
+hoolix-*
+hoolix-*.exe
+
+# User data & runtime (never commit)
+.hoolix/
+**/.runtime.json
+**/.doctor-*
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# OS / Editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.code-workspace
+.history/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Test & coverage
+coverage/
+.nyc_output/
+*.lcov
+test-results/
+playwright-report/
+playwright/.cache/
+
+# Temporary / debug
+tmp/
+temp/
+*.tmp
+*.temp
+.cache/
+.eslintcache
+
+# Bun specific
+.bun/
+bunfig.toml
+
+# Release artifacts (if generated locally)
+*.zip
+*.tar.gz
+*.tgz
+
+# Misc
+*.bak
+*.orig

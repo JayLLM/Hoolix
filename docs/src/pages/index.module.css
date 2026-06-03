@@ -1,0 +1,10 @@
+/* Homepage module styles — kept minimal.
+   Most styling now lives in src/css/custom.css using Tailwind + GitHub tokens.
+   Only keep overrides here if absolutely needed for the custom page.
+*/
+
+.homepage {
+  /* Ensure the layout wrapper plays nice */
+}
+
+/* If you ever need very specific overrides not achievable via global CSS or Tailwind, add here */

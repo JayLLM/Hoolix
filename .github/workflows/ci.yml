@@ -1,0 +1,117 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.0
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Type check
+        run: bun run typecheck
+
+      - name: Unit and integration tests
+        run: bun test
+        env:
+          MCP_PORTAL_SKIP_UPDATE_CHECK: '1'
+
+  e2e:
+    name: CLI/TUI/host e2e (ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.0
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run isolated e2e suite
+        run: bun run test:e2e
+        env:
+          MCP_PORTAL_SKIP_UPDATE_CHECK: '1'
+
+  binary-smoke:
+    name: Binary smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            os: linux
+            ext: ''
+          - runner: macos-14
+            os: darwin
+            ext: ''
+          - runner: windows-latest
+            os: windows
+            ext: '.exe'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.0
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build standalone binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist-bin
+          bun build --compile src/index.ts --minify --outfile "dist-bin/hoolix${{ matrix.ext }}"
+          chmod +x "dist-bin/hoolix${{ matrix.ext }}" 2>/dev/null || true
+
+      - name: Size budget check
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN="dist-bin/hoolix${{ matrix.ext }}"
+          BYTES=$(node -e "const fs=require('fs'); console.log(fs.statSync(process.argv[1]).size)" "$BIN")
+          echo "Binary size: $BYTES bytes"
+          test "$BYTES" -lt 250000000
+
+      - name: Binary quick smoke with isolated data
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN="./dist-bin/hoolix${{ matrix.ext }}"
+          DATA_DIR="$RUNNER_TEMP/hoolix-binary-smoke"
+          export MCP_PORTAL_DATA_DIR="$DATA_DIR"
+          export MCP_PORTAL_SKIP_UPDATE_CHECK=1
+          "$BIN" --version
+          "$BIN" doctor --json || echo "(doctor may report limited network in CI - non-fatal for binary launch smoke)"
+          "$BIN" list --json
+          MCP_PORTAL_TUI_TEST_MODE=1 MCP_PORTAL_TUI_KEYS='r,q' CI='' "$BIN" tui

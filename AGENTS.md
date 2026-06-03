@@ -1,0 +1,264 @@
+# AGENTS.md — Hoolix
+
+**This is the single source of truth for AI agents (Grok Build, Claude, Cursor, etc.) and human contributors.**
+
+Follow it exactly. When in doubt, re-read it.
+
+## Project Mission
+
+hoolix turns documentation URLs (llms.txt / llms-full.txt first-class, GitHub repos, regular sites) into fully functional, authenticated, hostable MCP servers (Streamable HTTP) that agents can trust.
+
+It must feel like a **production-grade, daily must-have** tool:
+- Robust, observable ingestion (llms + GitHub tree + anti-bot resilience).
+- High-quality RAG that actually helps agents (grounded results with Source URLs, optional hybrid semantic).
+- Secure-by-default (keys, rotation, rate limits, audit).
+- Excellent DX: polished CLI + TUI (default), `verify` for trust, `connect` magic, `--json` everywhere.
+- Zero-friction after simple binary install (`install.sh` / `install.ps1`).
+- Best-in-class open-source experience (docs, examples, contribution hygiene).
+
+**Priorities (in order)**:
+1. User experience *after installation* (binary "just works", TUI delight, connect in <30s).
+2. Ingestion + RAG quality + grounding (this is why the product exists).
+3. Security, reliability, cross-platform (especially Windows).
+4. Documentation as code (every change updates the right docs + examples).
+5. Binary size & startup discipline + lazy loading.
+
+## Tech Stack & Constraints (Strict)
+
+- **Language**: TypeScript strict (no `any` except where the MCP SDK forces it; prefer `unknown` + casts documented).
+- **Runtime**: Bun preferred for `bun build --compile` native binaries. Node 20+ fallback. Never assume tsx/npx/source after packaging.
+- **CLI**: Hand-rolled dispatcher in `src/index.ts` (switch on `process.argv[2] || 'tui'`, manual `indexOf`/`includes`, `@clack/prompts` for interactive). Every machine-consumable command **must** support `--json`.
+- **MCP**: `@modelcontextprotocol/server` + Hono + `WebStandardStreamableHTTPServerTransport`. Tools: `search_documentation`, `read_documentation_page`, `get_table_of_contents`. All responses must include source URLs.
+- **RAG**: Fuse.js + direct keyword (default, zero-dep). Optional advanced hybrid (bge-small/base + RRF reranker, query/embed caches, alpha weights) behind `--hybrid` / `--embedding-model` + lazy dynamic import only (see src/rag/{models.ts,store.ts}). Never put LanceDB or always-on embeddings in the hot path without feature flag + migration story. Update advanced-rag.md + AGENTS when changing fusion/eval/model list.
+- **TUI**: Ink + React (default experience when no args). **Must** be dynamically imported only on the tui path + TTY guard. Non-TUI commands must not pay the cost at runtime.
+- **Distribution (critical invariant)**: Packaged binaries (`dist-bin/`) must allow `hoolix start <slug>` and `hoolix` (TUI) with zero external runtime or source. `__internal-host` self-spawn model in `ServerManager` + `host.ts`.
+- **Cross-platform**: `env-paths` for all data. `ps-list` + `tree-kill` for process mgmt. No Unix signals/symlinks in core paths. Test Windows early.
+- **Validation**: Zod for all persisted + external data.
+- **Logging**: `consola` via `src/core/logger.ts` only. Never `console.log` / `console.error` in library code (`core/`, `ingestion/`, `rag/`, `process/`, `mcp/`).
+- **Imports**: Relative imports **must** end in `.js` (ESM).
+- **Side effects**: Avoid top-level await and heavy init (impacts binary startup + bundling).
+- **Errors**: Use custom classes from `src/core/errors.ts` (`MCPPError` + subclasses). Never throw raw strings or vague `Error`.
+
+## Directory Structure (Current)
+
+```
+src/
+├── index.ts                 # CLI dispatcher + all cmdXXX (hand-rolled)
+├── core/                    # paths (env-paths), config (Zod), registry (Zod + validation), errors, logger, updater, version
+├── ingestion/               # pipeline, fetchers (+ github.ts), cleaners (lazy), chunker (heading-aware), detectors, types
+├── rag/                     # store.ts (Fuse + optional hybrid lazy), types
+├── mcp/
+│   └── host.ts              # MCP server (tools, Hono, auth, rate, audit). Exports startHostedServer. Static import in index helps bundler.
+├── process/
+│   └── manager.ts           # ServerManager (spawn health, Windows-safe ps-list/tree-kill, runtime markers, __internal-host detection)
+├── tui/                     # index.tsx (Ink TUI, dynamic import only)
+└── utils/                   # (future small shared; currently empty)
+
+bin/hoolix.js            # Shim (dist vs tsx)
+dist/                        # tsc (npm path)
+dist-bin/                    # bun build --compile (recommended)
+```
+
+Empty dirs (`commands/`, `utils/`, `mcp/tools/`) are intentional placeholders — do not populate unless a focused ADR decides to refactor the monolithic CLI.
+
+## Important Architectural Rules (Never Violate)
+
+### 1. Host Execution Model (Critical — Binary Invariant)
+- Packaged: `!process.execPath.includes('node') && !... 'bun'` → spawn `currentBinary __internal-host --slug ...`.
+- Dev: `tsx` / `.bin/tsx(.cmd)` + `src/mcp/host.ts`.
+- `src/index.ts` has **static** import of host (helps bundler include everything).
+- `host.ts` has direct-exec guard (only runs host when the four `--slug/--port/--data-dir/--auth-key` flags are present and not `__internal-host` in argv[0]).
+- After packaging, `hoolix start <slug>` and default TUI **must never** require tsx/source on user machine.
+- When touching `index.ts` / `manager.ts` / `host.ts`: always test both dev (`bun run dev`) and fresh binary.
+
+### 2. RAG Layer
+- Default = Fuse.js + direct keyword + rich per-chunk `metadata` (url, title, sectionPath, headings, order, charCount). **All** search/read/TOC results **must** include `metadata.url` for grounding.
+- Hybrid is **optional**, per-server (`embeddingModel`), behind `--hybrid` / config `preferredEmbedding`, lazy dynamic `import('@huggingface/transformers')` + `cosineSimilarity` (pure JS). Embeddings persisted only for hybrid servers (`embeddings.json`).
+- Never introduce LanceDB / heavy models into hot path without flag + migration story (see current hybrid implementation).
+- `verify` must surface quality (samples, grounding %, mode comparison when hybrid).
+- Update `registry` + `config` + `create`/`reindex`/`verify`/`info` when changing models.
+
+### 3. Ingestion Pipeline (Highest Value Area)
+- llms.txt / llms-full.txt **first-class** (sibling full, manifest expansion, per-page chunking so `metadata.url` is real page).
+- GitHub (`sourceType=github`): special path in `github.ts` (raw priority for llms/README + tree when token, crude ignores + .gitignore, rate detection, graceful fallback to normal fetch). Update docs when changing.
+- Heading-aware chunker preserves hierarchy + source URLs (non-negotiable for grounding).
+- Progress observable at every stage (for TUI + spinners). `onProgress` in `ingestDocumentation`.
+- Lazy heavy (jsdom/Readability) only on HTML path (see `cleaners.ts`).
+- UA rotation + curl fallback for anti-bot.
+- `detectSourceType` + `parse*` must be unit-tested.
+
+### 4. CLI Philosophy
+- Hand-rolled in `index.ts`. Add new command: case in switch + `async function cmdNew(args, json?)`, update `printHelp()`, support `--json` if machine friendly, actionable `logger.error` + "Next step: ...".
+- Interactive: `@clack/prompts` (text/select/confirm + isCancel).
+- Long-running: spinners + live `onProgress` messages.
+- Every new flag/cmd must appear in `doctor` (when healthy) + examples + relevant guide.
+- Error messages end with "what the user should do next".
+
+### 5. Cross-Platform (Windows is First-Class)
+- `env-paths` everywhere for data.
+- Process: `ps-list` + `tree-kill` (never Unix signals).
+- Paths: no symlinks in core. Use `path.join`, `fs-extra`.
+- Clipboard (connect): platform exec (clip / pbcopy / xclip / wl-copy) — no new dep.
+- Test spawn/host/paths on Windows in every release.
+
+### 6. TUI (Default Experience)
+- `src/tui/index.tsx` (Ink + React).
+- Launched only via **dynamic import** in the default/tui case in `index.ts`.
+- TTY guard (`!stdout.isTTY || CI`) + graceful fallback to text help.
+- Uses `listServers`, `serverManager.getStatus/start/stop`, `getServerDir` + fs for host.log tail.
+- Keyboard-driven (numbers, letters s/v/c/i/x/r/q, arrows). Live poll status. Action feedback.
+- When adding TUI actions that duplicate CLI (reindex/verify), prefer extracting small pure helpers from `index.ts` (or accept minimal dupe for v1 and note it).
+
+### 7. Optional Hybrid RAG
+- Flag + config driven. Lazy dynamic import only.
+- `indexChunks(..., {embeddingModel, onProgress})` computes + persists vectors only for hybrid.
+- `search(..., {mode})` blends or uses pure semantic when vectors present; falls back cleanly.
+- First-run UX must show progress + "model downloading to cache".
+- Size/perf: document in FAQ/PACKAGING. Binary grows but non-hybrid paths stay light.
+- Update verify/info/list to surface `embeddingModel`.
+
+### 8. Security, Rate, Audit, Key Rotation
+- Auth: per-server crypto key (generated at create, only in metadata).
+- `rotate <slug>`: new key, update metadata, warn to restart, print old/new.
+- Rate: simple in-memory (host middleware), 429 + audit.
+- Audit: append-only `audit.log` (ts + tool + query snippet + hits) per server data dir.
+- Guards: response size cap + timeout wrapper on tool handlers.
+- Keys never logged except at explicit start time.
+
+### 9. Documentation as Code (Non-Negotiable)
+- Every CLI/behavior change → update:
+  - README (hero, table, quickstart, examples, limitations, "why").
+  - Relevant `docs/docs/guides/*` + `getting-started/*`.
+  - `docs/docs/api-reference/cli.md` + architecture pages.
+  - Inline JSDoc + AGENTS if arch changed.
+  - `examples/` + benchmark if new capability.
+  - CHANGELOG (or let release-it pick it up).
+- Run `cd docs && npm start` locally after docs changes.
+- Architecture diagrams: Mermaid code blocks + ASCII. (Docusaurus can add remark-mermaid later.)
+- "How to keep documentation perfect" section below.
+
+### 10. Contribution & Agent Workflow
+- **Always** start with issue / discussion for anything > tiny.
+- Use `todo_write` for multi-step work (this session did).
+- For ambiguity or large design: `enter_plan_mode` → explore (use `spawn_subagent` with type "explore" for parallel) → write plan → `exit_plan_mode`.
+- Small PRs preferred. Tests + docs required.
+- Before submit: `bun test`, `npx tsc --noEmit`, fresh binary smoke for dist changes.
+- Review checklist in PR template.
+
+## Development Workflow
+
+```bash
+bun install
+bun run dev                 # or npx tsx src/index.ts
+npx tsc --noEmit -p tsconfig.json
+bun test
+bun run test:e2e             # isolated temp-data CLI/TUI/host regression suite
+bun run build:binary        # (or :win)
+./dist-bin/hoolix doctor
+./dist-bin/hoolix create "Test" --url https://raw.githubusercontent.com/modelcontextprotocol/servers/main/README.md --yes
+./dist-bin/hoolix verify test
+./dist-bin/hoolix connect test --client generic --json
+./dist-bin/hoolix delete test --yes
+```
+
+TUI: `bun run dev` (no args) or the built binary.
+
+Docs site: `cd docs && npm install && npm start`.
+
+## Coding Standards (Expanded)
+
+- **Strict TS**: No implicit any. Explicit return types on public fns. Prefer `unknown`.
+- **Errors**: Custom MCPP* classes + `isMCPPError`. Actionable + "Next: ...".
+- **Validation**: Zod for persisted (registry/config) and tool inputSchemas.
+- **Logging**: Only `logger.*` from core/logger. No console in lib code.
+- **Imports**: `.js` suffix. Dynamic for heavy/optional (TUI, hybrid, GitHub tree when possible).
+- **Lazy / Size**: Follow `cleaners.ts` pattern exactly. New heavy dep requires ADR + FAQ update + conditional load.
+- **Binary discipline**: Measure impact (`ls -lh` before/after). Document in PACKAGING/FAQ. Test both dev + packaged.
+- **Tests**: Unit for pure (chunker, parse, cosine, registry). Integration smoke and CLI e2e must use `MCP_PORTAL_DATA_DIR` temp roots and never touch real user data. Keep e2e helpers in `test/helpers/`, run `bun run test:e2e` for create → verify → connect → rotate → TUI test keys → start/stop, and cover private GitHub with mocks unless a secret-backed job is explicitly added. Binary smoke + size budget run in CI.
+- **Docs**: Update the right files (see "documentation perfect" below). Add examples.
+- **Performance**: Hot paths (search, chunk) must stay fast. Brute cosine ok for 6k. Batch embeddings.
+- **Windows**: Every process/path/clipboard change tested or reviewed for Win.
+
+## When Touching Distribution Code (index, manager, host, tui, package.json for new deps)
+
+- Update PACKAGING.md + RELEASE.md.
+- Test full install → create → verify → start → connect → rotate → TUI actions with freshly built binary.
+- Note size change + lazy rationale.
+- Update doctor / help text.
+
+## Contribution Workflow (Humans + Agents)
+
+1. Read AGENTS.md + open issue.
+2. Explore (use tools + spawn_subagent type=explore for parallel deep dives).
+3. If ambiguous/large: enter_plan_mode → thorough reads → design tradeoffs → write plan.md → exit_plan_mode (user approves).
+4. Implement with `todo_write` tracking (mark done immediately, one at a time).
+5. Small focused changes. Use search_replace for precision.
+6. Add/extend tests. Update docs immediately (not "later").
+7. Run final verification (test, typecheck, binary build, smoke).
+8. PR with template filled (links issue, lists docs changes, binary test evidence).
+
+**Agent-specific**:
+- You (Grok Build) must use `todo_write`, `spawn_subagent` for exploration, `enter/exit_plan_mode` for ambiguity, `read_file`/`grep` before edits.
+- After every significant block: run typecheck or test snippet.
+- Never skip docs or tests "to save time".
+- At end of session: produce the exact output format (summary, key files + diffs, full new AGENTS, remaining recs, confirmation of `bun test` + binary).
+- Prioritize: UX post-install > RAG/ingest quality > size/perf > open-source hygiene.
+
+## How to Keep Documentation Perfect (Gold Standard)
+
+Map of changes → files that **must** be touched:
+- New CLI command/flag: README (table + quickstart + examples), `src/index.ts` (help text), `docs/docs/api-reference/cli.md`, relevant guide (connecting or creating), examples/ if applicable, CHANGELOG.
+- RAG / hybrid change: architecture/rag-and-tools.md, FAQ binary-size, verify output in code + docs, README features/limitations, AGENTS.md.
+- Ingestion (GitHub etc.): architecture/ingestion-pipeline.md, api-ref/ingestion, README features, guides/multi-page or new GitHub guide, faq/fetch.
+- TUI: README (quickstart), guides (new or connecting), architecture/host-process or new tui page, FAQ, AGENTS.
+- Security (rotate/rate/audit): security/auth guide, README, architecture/host, doctor output.
+- Binary / packaging: PACKAGING.md, RELEASE.md, FAQ binary, README install, CI workflows comments.
+- Docs site structure: sidebars.js + intro if new top-level.
+
+**Process**:
+- Make the code change.
+- Immediately edit the docs (use precise search_replace).
+- Locally `cd docs && npm start` and spot-check the pages.
+- Use Mermaid ```mermaid blocks + ASCII diagrams.
+- Consistent voice: "hoolix <cmd>", actionable, "grounding URLs", "production-grade".
+- Update AGENTS.md for any new architectural rule or agent guideline.
+
+## Architecture Decision Records (ADR)
+
+For any non-trivial design choice (new heavy dep, major refactor, transport addition, hosted model):
+- Create `docs/adr/NNNN-short-title.md` (use template below).
+- Link it from AGENTS, architecture overview, and the PR.
+- Keep short (context, decision, consequences, status).
+
+**ADR Template** (copy to new file):
+
+```markdown
+# ADR-000N: Title
+
+**Date**: YYYY-MM-DD  
+**Status**: Proposed | Accepted | Deprecated
+
+## Context
+One paragraph problem + constraints (AGENTS rules, size, UX after install, etc.).
+
+## Decision
+What we chose + why (tradeoffs vs 2-3 alternatives).
+
+## Consequences
+Positive (UX, quality). Negative (size, complexity) + mitigation (lazy, docs, flag).
+
+## References
+PR, issues, code paths, AGENTS sections.
+```
+
+## Questions? When Stuck
+
+1. Re-read the priorities at top of this file.
+2. Re-read the 10 Architectural Rules.
+3. Use tools to explore (grep/read + subagents).
+4. Prefer small, documented, tested change that improves post-install UX or RAG grounding.
+5. Ask in issue / discussion with context + what you tried.
+
+This project should feel like the tool serious agentic AI engineers install on day one and recommend without hesitation.
+
+**Now go build.** Use the todo system, explore first, document everything, ship quality.

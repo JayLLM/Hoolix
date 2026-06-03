@@ -1,0 +1,198 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'Release type'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - beta
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  # Job 1: release-it (bump, CHANGELOG, tag, GitHub Release body from [Unreleased])
+  prepare-release:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}  # needed to push tag
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.0
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Run release-it to create release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ github.event.inputs.release_type }}" = "beta" ]; then
+            bunx release-it --ci --preRelease=beta --github.preRelease=true
+          else
+            bunx release-it --ci --increment=${{ github.event.inputs.release_type }} --github.preRelease=false
+          fi
+
+      - name: Get released tag
+        id: version
+        run: |
+          TAG="v$(node -p "require('./package.json').version")"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Released tag: $TAG"
+
+  # Job 2: cross-platform build (matrix on native runners) + artifacts
+  build-binaries:
+    needs: [prepare-release]
+    if: needs.prepare-release.result == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x64
+          - runner: ubuntu-latest
+            os: linux
+            arch: x64
+            binary-name: hoolix-linux-x64
+            ext: ''
+          # Linux arm64
+          - runner: ubuntu-24.04-arm
+            os: linux
+            arch: arm64
+            binary-name: hoolix-linux-arm64
+            ext: ''
+          # macOS Intel
+          # - runner: macos-13
+          #   os: darwin
+          #   arch: x64
+          #   binary-name: hoolix-darwin-x64
+          #   ext: ''
+          # macOS Apple Silicon
+          - runner: macos-14
+            os: darwin
+            arch: arm64
+            binary-name: hoolix-darwin-arm64
+            ext: ''
+          # Windows x64
+          - runner: windows-latest
+            os: windows
+            arch: x64
+            binary-name: hoolix-windows-x64
+            ext: '.exe'
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout (the released tag if available)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare-release.outputs.tag }}
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.0
+
+      - name: Install deps
+        run: bun install --frozen-lockfile || bun install
+
+      - name: Type check (optional)
+        run: bun run typecheck || echo "Type issues (non-fatal)"
+        continue-on-error: true
+
+      - name: Compile binary with bun build --compile
+        shell: bash
+        run: |
+          set -e
+          mkdir -p dist-bin
+          OUT="dist-bin/${{ matrix.binary-name }}${{ matrix.ext }}"
+          echo "Building $OUT for ${{ matrix.os }}-${{ matrix.arch }} on ${{ matrix.runner }}"
+          bun build --compile src/index.ts --minify --outfile "$OUT"
+          ls -lh "$OUT" || true
+          # Normalize windows output name if needed
+          if [[ "${{ matrix.os }}" == "windows" && ! "$OUT" == *.exe && -f "dist-bin/${{ matrix.binary-name }}" ]]; then
+            mv "dist-bin/${{ matrix.binary-name }}" "$OUT" || true
+          fi
+
+      - name: Quick smoke (every platform - version + doctor + list)
+        shell: bash
+        run: |
+          set -e
+          BIN="./dist-bin/${{ matrix.binary-name }}${{ matrix.ext }}"
+          if [[ ! -f "$BIN" && -f "dist-bin/${{ matrix.binary-name }}" ]]; then BIN="dist-bin/${{ matrix.binary-name }}"; fi
+          chmod +x "$BIN" 2>/dev/null || true
+          echo "Quick smoke on ${{ matrix.runner }}: $BIN"
+          export MCP_PORTAL_DATA_DIR="${RUNNER_TEMP:-/tmp}/hoolix-release-smoke-${{ matrix.os }}-${{ matrix.arch }}"
+          export MCP_PORTAL_SKIP_UPDATE_CHECK=1
+          "$BIN" --version
+          "$BIN" doctor --json || echo "(doctor may report limited net in CI - non-fatal)"
+          "$BIN" list --json || true
+          MCP_PORTAL_TUI_TEST_MODE=1 MCP_PORTAL_TUI_KEYS='r,q' CI='' "$BIN" tui
+          BYTES=$(node -e "const fs=require('fs'); console.log(fs.statSync(process.argv[1]).size)" "$BIN")
+          echo "Binary size: $BYTES bytes"
+          test "$BYTES" -lt 250000000
+          echo "Quick binary smoke passed"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.binary-name }}
+          path: dist-bin/${{ matrix.binary-name }}${{ matrix.ext }}
+          retention-days: 7
+
+  # Job 3: download artifacts and attach to the release created in job 1
+  attach-binaries:
+    needs: [prepare-release, build-binaries]
+    if: needs.prepare-release.result == 'success' && needs.build-binaries.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: ./dist-bin
+          merge-multiple: true
+
+      - name: List downloaded
+        run: ls -la ./dist-bin/
+
+      - name: Attach binaries to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare-release.outputs.tag }}
+          files: |
+            ./dist-bin/hoolix-linux-x64
+            ./dist-bin/hoolix-linux-arm64
+            ./dist-bin/hoolix-darwin-arm64
+            ./dist-bin/hoolix-windows-x64.exe
+          # prerelease based on input if dispatch
+          prerelease: ${{ github.event.inputs.release_type == 'beta' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

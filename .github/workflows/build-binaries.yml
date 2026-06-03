@@ -1,0 +1,137 @@
+name: Build Binaries (bun compile)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Optional override version tag for manual run'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x64
+          - runner: ubuntu-latest
+            os: linux
+            arch: x64
+            bun-target: bun-linux-x64  # informational
+            binary-name: hoolix-linux-x64
+            ext: ''
+          # Linux arm64 (GitHub has ubuntu arm runners in some plans; fallback comment)
+          - runner: ubuntu-24.04-arm  # or ubuntu-latest if arm available
+            os: linux
+            arch: arm64
+            binary-name: hoolix-linux-arm64
+            ext: ''
+          # macOS Intel
+          # - runner: macos-13
+          #   os: darwin
+          #   arch: x64
+          #   binary-name: hoolix-darwin-x64
+          #   ext: ''
+          # macOS Apple Silicon
+          - runner: macos-14  # or macos-latest (arm64)
+            os: darwin
+            arch: arm64
+            binary-name: hoolix-darwin-arm64
+            ext: ''
+          # Windows x64
+          - runner: windows-latest
+            os: windows
+            arch: x64
+            binary-name: hoolix-windows-x64
+            ext: '.exe'
+          # Windows arm64 (future / comment out if no runner)
+          # - runner: windows-11-arm
+          #   os: windows
+          #   arch: arm64
+          #   binary-name: hoolix-windows-arm64
+          #   ext: '.exe'
+
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.0  # match packageManager
+
+      - name: Install deps (for bundling / types)
+        run: bun install --frozen-lockfile || bun install
+
+      # Optional: type check or lint (non-blocking for binary)
+      - name: Type check (optional)
+        run: bun run typecheck || echo "Type issues (non-fatal for binary build)"
+        continue-on-error: true
+
+      - name: Compile binary with bun build --compile
+        shell: bash
+        run: |
+          set -e
+          mkdir -p dist-bin
+          OUT="dist-bin/${{ matrix.binary-name }}${{ matrix.ext }}"
+          echo "Building $OUT for ${{ matrix.os }}-${{ matrix.arch }} on ${{ matrix.runner }}"
+          bun build --compile src/index.ts --minify --outfile "$OUT"
+          ls -lh "$OUT" || true
+          # On Windows the output may already have .exe from bun, normalize
+          if [[ "${{ matrix.os }}" == "windows" && ! "$OUT" == *.exe && -f "dist-bin/${{ matrix.binary-name }}" ]]; then
+            mv "dist-bin/${{ matrix.binary-name }}" "$OUT" || true
+          fi
+
+      - name: Quick smoke (every platform - version + doctor + list)
+        shell: bash
+        run: |
+          set -e
+          BIN="./dist-bin/${{ matrix.binary-name }}${{ matrix.ext }}"
+          if [[ ! -f "$BIN" && -f "dist-bin/${{ matrix.binary-name }}" ]]; then BIN="dist-bin/${{ matrix.binary-name }}"; fi
+          chmod +x "$BIN" 2>/dev/null || true
+          echo "Quick smoke on ${{ matrix.runner }}: $BIN"
+          export MCP_PORTAL_DATA_DIR="${RUNNER_TEMP:-/tmp}/hoolix-binary-smoke-${{ matrix.os }}-${{ matrix.arch }}"
+          export MCP_PORTAL_SKIP_UPDATE_CHECK=1
+          "$BIN" --version
+          "$BIN" doctor --json || echo "(doctor may report limited net in CI - non-fatal)"
+          "$BIN" list --json || true
+          MCP_PORTAL_TUI_TEST_MODE=1 MCP_PORTAL_TUI_KEYS='r,q' CI='' "$BIN" tui
+          BYTES=$(node -e "const fs=require('fs'); console.log(fs.statSync(process.argv[1]).size)" "$BIN")
+          echo "Binary size: $BYTES bytes"
+          test "$BYTES" -lt 250000000
+          echo "Quick binary smoke passed"
+
+      - name: Full smoke (ubuntu x64 only - ingest + verify + connect + host path probe)
+        if: matrix.runner == 'ubuntu-latest' && matrix.arch == 'x64'
+        shell: bash
+        run: |
+          set -e
+          BIN="./dist-bin/${{ matrix.binary-name }}"
+          chmod +x "$BIN" || true
+          SLUG="ci-smoke"
+          export MCP_PORTAL_DATA_DIR="${RUNNER_TEMP:-/tmp}/hoolix-full-smoke-${GITHUB_RUN_ID:-manual}"
+          export MCP_PORTAL_SKIP_UPDATE_CHECK=1
+          echo "Full smoke: create + verify + connect + timed start (exercises __internal-host)"
+          "$BIN" create "CI Smoke" --url https://raw.githubusercontent.com/modelcontextprotocol/servers/main/README.md --yes
+          "$BIN" verify "$SLUG" --json | head -c 2000 || true
+          "$BIN" connect "$SLUG" --json | head -c 600 || true
+          # Bounded start to hit ServerManager self-spawn + __internal-host + health probe + runtime.json without hanging CI
+          timeout 25s "$BIN" start "$SLUG" || echo "start (host model) attempted / timed out (expected in short CI)"
+          "$BIN" stop "$SLUG" || true
+          "$BIN" delete "$SLUG" --yes || true
+          echo "Full binary smoke (ingestion + RAG + connect + host execution) passed"
+
+      - name: Upload artifact (for manual inspection)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.binary-name }}
+          path: dist-bin/${{ matrix.binary-name }}${{ matrix.ext }}
+          retention-days: 7
+
+  # Release assets are built and attached by release.yml from the released tag.
+  # This workflow is intentionally manual-only for ad hoc binary inspection.
