@@ -3,7 +3,7 @@ import Link from '@docusaurus/Link';
 
 const SEARCH_ITEMS = [
   ['Quick Start', '/docs/getting-started/quick-start', 'Create and connect your first MCP server in minutes.'],
-  ['Installation', '/docs/getting-started/installation', 'Install MCP Portal binaries on Windows, macOS, and Linux.'],
+  ['Installation', '/docs/getting-started/installation', 'Install Hoolix binaries on Windows, macOS, and Linux.'],
   ['CLI Reference', '/docs/api-reference/cli', 'Every command, flag, and --json automation workflow.'],
   ['Creating Servers', '/docs/guides/creating-servers', 'Ingest llms.txt, GitHub repositories, and regular sites.'],
   ['Connecting Clients', '/docs/guides/connecting-clients', 'Connect Claude Desktop, Cursor, Windsurf, and more.'],
@@ -13,7 +13,7 @@ const SEARCH_ITEMS = [
   ['RAG & MCP Tools', '/docs/architecture/rag-and-tools', 'Search, read, and table-of-contents tools with source URLs.'],
   ['Host & Process', '/docs/architecture/host-and-process', 'Binary self-spawn model, Streamable HTTP, and process management.'],
   ['Changelog', '/docs/changelog', 'Latest product changes and release notes.'],
-  ['Blog', '/blog', 'Field notes and launch updates from the MCP Portal team.'],
+  ['Blog', '/blog', 'Field notes and launch updates from the Hoolix team.'],
 ];
 
 function scoreItem(item, query) {
@@ -80,7 +80,7 @@ export default function SearchBar() {
                 ref={inputRef}
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search MCP Portal docs, guides, and architecture…"
+                placeholder="Search Hoolix docs, guides, and architecture…"
                 aria-label="Search query"
               />
               <button type="button" onClick={() => setOpen(false)} aria-label="Close search">

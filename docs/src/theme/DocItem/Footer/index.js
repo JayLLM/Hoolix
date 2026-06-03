@@ -9,7 +9,7 @@ export default function DocItemFooterWrapper(props) {
       <section className="doc-helpful" aria-labelledby="doc-helpful-title">
         <div>
           <h2 id="doc-helpful-title">Was this page helpful?</h2>
-          <p>Help us keep MCP Portal documentation practical, grounded, and agent-ready.</p>
+          <p>Help us keep Hoolix documentation practical, grounded, and agent-ready.</p>
         </div>
         <div className="doc-helpful__actions" role="group" aria-label="Documentation feedback">
           <button type="button" className={vote === 'yes' ? 'is-selected' : ''} onClick={() => setVote('yes')}>

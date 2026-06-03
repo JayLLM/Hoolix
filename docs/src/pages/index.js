@@ -67,7 +67,7 @@ function HeroTerminal() {
   const current = terminalFrames[frame];
 
   return (
-    <div className="hero-terminal" aria-label="Animated MCP Portal command line demo">
+    <div className="hero-terminal" aria-label="Animated Hoolix command line demo">
       <div className="hero-terminal__bar">
         <span />
         <span />
@@ -119,7 +119,7 @@ function HomepageHeader() {
           </Heading>
 
           <p className="home-hero__subtitle">
-            MCP Portal transforms <strong>llms.txt</strong>, GitHub repositories, and websites into authenticated,
+            Hoolix transforms <strong>llms.txt</strong>, GitHub repositories, and websites into authenticated,
             hostable Streamable HTTP MCP servers with source-grounded RAG, verification, audit logs, and one-command
             client connection.
           </p>
@@ -223,7 +223,7 @@ function FeaturesSection() {
           <span className="section-kicker">Feature stack</span>
           <h2>Everything agents need. Nothing in the hot path that they do not.</h2>
           <p>
-            MCP Portal is designed around trustworthy retrieval, delightful post-install UX, and secure hostable MCP
+            Hoolix is designed around trustworthy retrieval, delightful post-install UX, and secure hostable MCP
             servers that feel production-ready on day one.
           </p>
         </Reveal>
@@ -283,7 +283,7 @@ function DocsSection() {
   const docs = [
     ['Install', '/docs/getting-started/installation', 'Get the binary running on Windows, macOS, or Linux.'],
     ['Create servers', '/docs/guides/creating-servers', 'Choose source types, flags, and repeatable ingestion patterns.'],
-    ['Connect clients', '/docs/guides/connecting-clients', 'Wire MCP Portal into Claude Desktop, Cursor, Windsurf, and more.'],
+    ['Connect clients', '/docs/guides/connecting-clients', 'Wire Hoolix into Claude Desktop, Cursor, Windsurf, and more.'],
     ['Architecture', '/docs/architecture', 'Understand ingestion, RAG, transport, data paths, and process management.'],
   ];
 
@@ -322,7 +322,7 @@ function PricingSection() {
             <span className="section-kicker">Pricing</span>
             <h2>Open source today. Premium-grade forever.</h2>
             <p>
-              MCP Portal is built as a best-in-class open-source developer tool. Host it locally, inspect every source
+              Hoolix is built as a best-in-class open-source developer tool. Host it locally, inspect every source
               URL, and automate every workflow from the CLI.
             </p>
           </div>
@@ -344,7 +344,7 @@ function FinalCTA() {
           <p>Install the binary, create your first server, verify grounding, and connect your client in minutes.</p>
           <div className="final-cta__actions">
             <Link className="button button--primary button--lg button--glow" to="/docs/getting-started/installation">
-              Install MCP Portal
+              Install Hoolix
             </Link>
             <Link className="button button--ghost button--lg" to="/blog">
               Read the blog
@@ -362,7 +362,7 @@ export default function Home() {
   return (
     <Layout
       title={`${siteConfig.title} — Official homepage and documentation portal`}
-      description="MCP Portal turns documentation URLs into secure, hostable MCP servers with source-grounded RAG, verification, TUI, CLI automation, and client connect flows."
+      description="Hoolix turns documentation URLs into secure, hostable MCP servers with source-grounded RAG, verification, TUI, CLI automation, and client connect flows."
       wrapperClassName="homepage"
     >
       <HomepageHeader />

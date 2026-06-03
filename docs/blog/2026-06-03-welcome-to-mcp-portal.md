@@ -1,10 +1,10 @@
 ---
 slug: welcome-to-hoolix
-title: Welcome to the MCP Portal docs experience
+title: Welcome to the Hoolix docs experience
 tags: [launch, docs, mcp]
 ---
 
-MCP Portal exists to make documentation usable by agents the moment a developer installs the binary.
+Hoolix exists to make documentation usable by agents the moment a developer installs the binary.
 
 <!-- truncate -->
 

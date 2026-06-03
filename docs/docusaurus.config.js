@@ -7,7 +7,7 @@ const tailwindPlugin = require('./plugins/tailwind-plugin.cjs');
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
-  title: 'MCP Portal',
+  title: 'Hoolix',
   tagline: 'Turn documentation into trusted MCP servers',
   favicon: 'img/favicon.ico',
 
@@ -48,7 +48,7 @@ const config = {
       tagName: 'meta',
       attributes: {
         property: 'og:title',
-        content: 'MCP Portal — Documentation into trusted MCP servers',
+        content: 'Hoolix — Documentation into trusted MCP servers',
       },
     },
     {
@@ -74,7 +74,7 @@ const config = {
       innerHTML: JSON.stringify({
         '@context': 'https://schema.org',
         '@type': 'SoftwareApplication',
-        name: 'MCP Portal',
+        name: 'Hoolix',
         applicationCategory: 'DeveloperApplication',
         operatingSystem: 'Windows, macOS, Linux',
         description:
@@ -103,7 +103,7 @@ const config = {
           showReadingTime: true,
           routeBasePath: 'blog',
           editUrl: 'https://github.com/JayLLM/hoolix/tree/main/docs/',
-          blogTitle: 'MCP Portal Blog',
+          blogTitle: 'Hoolix Blog',
           blogDescription: 'Release notes, architecture notes, and field guides for agent-ready documentation.',
           postsPerPage: 6,
         },
@@ -155,9 +155,9 @@ const config = {
 
       navbar: {
         hideOnScroll: false,
-        title: 'MCP Portal',
+        title: 'Hoolix',
         logo: {
-          alt: 'MCP Portal',
+          alt: 'Hoolix',
           src: 'logo/light.svg',
           srcDark: 'logo/dark.svg',
           width: 140,
@@ -252,13 +252,13 @@ const config = {
           },
         ],
         logo: {
-          alt: 'MCP Portal',
+          alt: 'Hoolix',
           src: 'logo/light.svg',
           srcDark: 'logo/dark.svg',
           href: '/',
           width: 130,
         },
-        copyright: `Copyright © ${new Date().getFullYear()} MCP Portal contributors. Built with Docusaurus for agent-ready docs.`,
+        copyright: `Copyright © ${new Date().getFullYear()} Hoolix contributors. Built with Docusaurus for agent-ready docs.`,
       },
 
       prism: {
