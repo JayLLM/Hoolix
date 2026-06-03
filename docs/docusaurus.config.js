@@ -11,7 +11,7 @@ const config = {
   tagline: 'Turn documentation into trusted MCP servers',
   favicon: 'img/favicon.ico',
 
-  url: 'https://jayllm.github.io',
+  url: 'https://hoolix.app',
   baseUrl: '/hoolix/',
 
   organizationName: 'JayLLM',
