@@ -569,6 +569,7 @@ async function cmdCreate(args: string[], json: boolean) {
       ingestionVersion: '1.0.0',
       embeddingModel,
       chunkCount: result.stats.totalChunks,
+      ingestionStats: result.stats,
       vectorIndexed: isHybridModel(embeddingModel),
       authKey: generateAuthKey(),
       desiredState: 'stopped',
@@ -748,6 +749,7 @@ async function cmdReindex(args: string[], json: boolean) {
     await updateServerMetadata(slug, {
       chunkCount: result.stats.totalChunks,
       sourceType: result.sourceType,
+      ingestionStats: result.stats,
       embeddingModel: embeddingModel2,
       vectorIndexed: isHybridModel(embeddingModel2),
     });
@@ -810,16 +812,23 @@ async function cmdVerify(args: string[]) {
     }
 
     const queries = ['overview', 'install', 'getting started', 'api', 'configuration'];
+    const diagnostics = await rag.getDiagnostics?.();
     const samples: Array<{
       query: string;
       hits: number;
       top: { title?: string; sectionPath?: string; url: string; score?: number } | null;
+      grounded: boolean;
+      weak: boolean;
     }> = [];
     let groundedCount = 0;
+    const weakQueries: string[] = [];
     for (const query of queries) {
       const results = await rag.search(query, { limit: 2, mode: 'hybrid' });
       const top = results[0];
       if (top?.metadata.url) groundedCount++;
+      const grounded = !!top?.metadata.url;
+      const weak = results.length === 0 || !grounded || (top?.score ?? 0) < 0.45;
+      if (weak) weakQueries.push(query);
       samples.push({
         query,
         hits: results.length,
@@ -829,9 +838,15 @@ async function cmdVerify(args: string[]) {
           url: top.metadata.url,
           score: top.score,
         } : null,
+        grounded,
+        weak,
       });
     }
     const toc = await rag.getTableOfContents();
+    const ingestionStats = meta.ingestionStats || null;
+    const likelyTruncated = !!ingestionStats?.truncated || (
+      typeof ingestionStats?.maxChunks === 'number' && meta.chunkCount >= ingestionStats.maxChunks
+    );
     console.log(JSON.stringify({
       slug,
       name: meta.name,
@@ -840,8 +855,25 @@ async function cmdVerify(args: string[]) {
       validation,
       searchable: samples.some((sample) => sample.hits > 0),
       groundingPercent: Math.round((groundedCount / queries.length) * 100),
+      sourceCoveragePercent: diagnostics?.sourceCoveragePercent ?? null,
+      uniqueSourceUrls: diagnostics?.uniqueSourceUrls ?? null,
+      totalChars: diagnostics?.totalChars ?? null,
+      averageChunkChars: diagnostics?.averageChunkChars ?? null,
+      duplicateChunkIds: diagnostics?.duplicateChunkIds ?? null,
+      weakQueries,
+      ingestion: ingestionStats ? {
+        pagesProcessed: ingestionStats.pagesProcessed,
+        pagesDiscovered: ingestionStats.pagesDiscovered,
+        maxPages: ingestionStats.maxPages,
+        maxChunks: ingestionStats.maxChunks,
+        truncated: likelyTruncated,
+      } : {
+        truncated: likelyTruncated,
+        note: 'No persisted ingestion stats; reindex to record cap details.',
+      },
       samples,
       tocEntries: toc.length,
+      tocPreview: toc.slice(0, 12),
       embeddingModel: meta.embeddingModel,
     }, null, 2));
     return;
@@ -875,12 +907,36 @@ async function cmdVerify(args: string[]) {
   const sample = await rag.search('overview OR install OR api', { limit: 1 });
   console.log(`  ${ui.muted('RAG searchable')}  ${statusText(sample.length > 0, 'yes', 'no (empty index?)')}`);
 
+  const diagnostics = await rag.getDiagnostics?.();
+  const ingestionStats = meta.ingestionStats;
+  const likelyTruncated = !!ingestionStats?.truncated || (
+    typeof ingestionStats?.maxChunks === 'number' && meta.chunkCount >= ingestionStats.maxChunks
+  );
+
+  console.log('');
+  printSection('Trust signals');
+  printDetails([
+    ['Source coverage', diagnostics ? `${diagnostics.sourceCoveragePercent}% (${diagnostics.chunksWithUrl}/${diagnostics.totalChunks} chunks have URLs)` : 'unknown'],
+    ['Unique source URLs', diagnostics?.uniqueSourceUrls],
+    ['Average chunk size', diagnostics ? `${diagnostics.averageChunkChars.toLocaleString()} chars` : undefined],
+    ['Duplicate chunk IDs', diagnostics?.duplicateChunkIds],
+    ['Ingestion cap', ingestionStats ? `${ingestionStats.totalChunks.toLocaleString()}/${ingestionStats.maxChunks.toLocaleString()} chunks, ${ingestionStats.pagesProcessed.toLocaleString()}/${ingestionStats.maxPages.toLocaleString()} pages` : 'reindex to record cap details'],
+    ['Truncated', likelyTruncated ? ui.warning('yes') : ui.success('no')],
+  ]);
+  if (likelyTruncated) {
+    console.log(`    ${ui.warning('!')} Index hit an ingestion cap. Next: reindex with a narrower source or raise caps once flags/config support it.`);
+  }
+  if (diagnostics && diagnostics.sourceCoveragePercent < 100) {
+    console.log(`    ${ui.warning('!')} Some chunks are missing source URLs. Next: reindex and inspect ingestion output for malformed pages.`);
+  }
+
   // Sample searches using common terms (to surface relevance/grounding quickly)
   console.log('');
   printSection('Sample searches (relevance + grounding)');
   const queries = ['overview', 'install', 'getting started', 'api', 'configuration', 'authentication', 'usage'];
   let groundedCount = 0;
   let totalHits = 0;
+  const weakQueries: string[] = [];
   for (const q of queries.slice(0, 5)) {
     const res = await rag.search(q, { limit: 2, mode: 'hybrid' });
     totalHits += res.length;
@@ -889,16 +945,21 @@ async function cmdVerify(args: string[]) {
       const hasGround = !!top.metadata.url;
       if (hasGround) groundedCount++;
       const rel = Math.round((top.score || 0.8) * 100);
+      if (!hasGround || (top.score ?? 0) < 0.45) weakQueries.push(q);
       console.log(`  ${ui.accent('›')} ${chalk.bold(q)} ${ui.muted(`${res.length} hit(s)`)}  score=${rel}%  ${hasGround ? ui.success('grounded') : ui.warning('no url')}`);
       console.log(`    ${truncate(top.metadata.sectionPath || top.metadata.title || top.metadata.url, 88)}`);
       console.log(`    ${ui.muted(truncate(top.content.replace(/\n/g, ' '), 110))}`);
       console.log(`    ${ui.muted('Source')} ${truncate(top.metadata.url, 80)}`);
     } else {
       console.log(`  ${ui.accent('›')} ${chalk.bold(q)} ${ui.muted('no results')}`);
+      weakQueries.push(q);
     }
   }
   const groundingPct = totalHits > 0 ? Math.round((groundedCount / Math.min(5, queries.length)) * 100) : 0;
   console.log(`  ${ui.muted('Grounding quality (sample)')} ${groundingPct}% of top results include source URL + section`);
+  if (weakQueries.length > 0) {
+    console.log(`  ${ui.muted('Needs attention')} ${weakQueries.join(', ')}`);
+  }
 
   // TOC reconstruction sample (from chunk sectionPaths)
   const toc = await rag.getTableOfContents();
@@ -1467,7 +1528,7 @@ async function launchGui(args: string[]) {
 
   try {
     const { launchWebGui } = await import('./web/server.js');
-    await launchWebGui({ port, host, open: !noOpen, token: providedToken });
+    await launchWebGui({ port, host, open: !noOpen, token: providedToken, strictPort: portIdx !== -1 });
   } catch (e: any) {
     logger.error('Failed to launch web GUI:', e?.message || e);
     process.exit(1);

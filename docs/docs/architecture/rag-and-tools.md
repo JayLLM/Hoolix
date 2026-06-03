@@ -9,13 +9,14 @@ sidebar_position: 3
 
 `DocumentationRAG` (`src/rag/store.ts`) is the RAG implementation. See the dedicated [Advanced Hybrid RAG guide](../guides/advanced-rag) for reranking (RRF), caching, evaluation, and model choices.
 
-- **Default ("fuse")**: `chunks.json` + Fuse.js (weighted on content/title/sectionPath) + direct keyword fast-path. Zero native deps. Extremely bundle-friendly.
+- **Default ("fuse")**: `chunks.json` + Fuse.js (weighted on content/title/sectionPath) + scored keyword matching with phrase, title, section, URL, term coverage, and weak-query penalties. Zero native deps. Extremely bundle-friendly.
 - **Optional hybrid** (`hybrid-bge-small` / `hybrid-bge-base`): lazy `@huggingface/transformers` + BGE. Vectors persisted in `embeddings.json`.
   - Smart embed cache hit detection on reindex.
   - In-memory LRU query vector cache at runtime.
   - Configurable fusion: `alpha` weighted blend or `reranker: 'rrf'` (often better relevance).
 - **All paths** return results with `metadata.url` + `sectionPath` (the grounding contract — every tool response includes "Source: ...").
-- `getTableOfContents` from stored sectionPaths.
+- `getTableOfContents` from stored sectionPaths, preserving source insertion order.
+- `getDiagnostics` reports source coverage, unique URLs, total/average chars, duplicate chunk IDs, and ordering metadata for `verify`.
 - Mode (`keyword` | `semantic` | `hybrid`) respected in `search_documentation`.
 
 See `create --hybrid` / `--embedding-model`, `reindex`, `verify --eval`, `examples/benchmark.ts`, config `preferredEmbedding`.
@@ -32,7 +33,7 @@ All tools are registered via the official `@modelcontextprotocol/server` `McpSer
 {
   "query": "string (min 2 chars)",
   "limit": "1-20 (default 8)",
-  "mode": "semantic | keyword | hybrid (default hybrid, currently ignored)"
+  "mode": "semantic | keyword | hybrid (default hybrid)"
 }
 ```
 
@@ -51,7 +52,7 @@ Matches chunks whose `url` or `sectionPath` contains the fragment. Concatenates 
 
 ### get_table_of_contents
 
-No args. Walks all chunks, builds unique `sectionPath` entries with levels derived from `>` count. Sorted.
+No args. Walks all chunks, builds unique `sectionPath` entries with levels derived from `>` count. Preserves source order.
 
 ## Grounding Contract
 

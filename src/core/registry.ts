@@ -16,6 +16,16 @@ export const ServerMetadataSchema = z.object({
   // 'fuse' = default zero-dep. 'hybrid-bge-*' = optional semantic via lazy transformers + cosine/RRF.
   embeddingModel: z.enum(SUPPORTED_EMBEDDING_MODELS as any).catch('fuse').default('fuse'),
   chunkCount: z.number().int().nonnegative(),
+  ingestionStats: z.object({
+    totalChunks: z.number().int().nonnegative(),
+    totalChars: z.number().int().nonnegative(),
+    pagesProcessed: z.number().int().nonnegative(),
+    pagesDiscovered: z.number().int().nonnegative().optional(),
+    durationMs: z.number().int().nonnegative(),
+    truncated: z.boolean(),
+    maxChunks: z.number().int().positive(),
+    maxPages: z.number().int().positive(),
+  }).optional(),
   vectorIndexed: z.boolean().default(false),
   createdAt: z.string().datetime(),
   lastUpdatedAt: z.string().datetime(),

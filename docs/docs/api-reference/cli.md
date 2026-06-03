@@ -52,10 +52,12 @@ hoolix verify <slug> [--eval] [--json]
 - Prints registry chunk count + source
 - Runs `validateServerState`
 - Loads RAG and does a quick searchability probe
+- Prints trust signals: source coverage, unique source URL count, average chunk size, duplicate chunk IDs, and ingestion cap/truncation status
 - Runs 3 sample searches and prints top hit + first 140 chars + `Source:`
-- Prints reconstructed TOC count + top level-1 entries
+- Prints weak/no-hit sample queries that need attention
+- Prints reconstructed TOC count + top level-1 entries in source order
 - Final guidance line about grounding
-- With `--json`, emits machine-readable validation, searchability, grounding percentage, samples, TOC count, and embedding model for CI/e2e gates
+- With `--json`, emits machine-readable validation, searchability, grounding percentage, source coverage, weak queries, ingestion cap details, samples, TOC preview, TOC count, and embedding model for CI/e2e gates
 
 Intended as the primary self-service quality check before wiring a client.
 

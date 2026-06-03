@@ -38,6 +38,8 @@ export async function ingestDocumentation(
   // pagesToProcess starts with primary; may expand for manifests below.
   let pagesToProcess: Array<{ content: string; contentType: string; url: string }> = [fetched];
   let pagesProcessed = 1;
+  let pagesDiscovered = 1;
+  let truncated = false;
 
   // Manifest expansion (only for llms.txt that is not -full and contains links/URLs)
   const isLlmsManifest =
@@ -48,7 +50,9 @@ export async function ingestDocumentation(
   if (isLlmsManifest) {
     emit({ stage: 'manifest', message: 'Parsing llms.txt manifest for page links...' });
     const manifestUrls = parseLlmsManifestUrls(fetched.content, fetched.url);
+    pagesDiscovered = Math.max(pagesDiscovered, 1 + manifestUrls.length);
     const toFetch = manifestUrls.slice(0, Math.max(0, maxPages - 1));
+    if (manifestUrls.length > toFetch.length) truncated = true;
 
     if (toFetch.length > 0) {
       emit({
@@ -97,6 +101,7 @@ export async function ingestDocumentation(
       if (ghRes && ghRes.pages && ghRes.pages.length > 0) {
         pagesToProcess = [ghRes.primary, ...ghRes.pages];
         pagesProcessed = pagesToProcess.length;
+        pagesDiscovered = Math.max(pagesDiscovered, pagesProcessed);
         emit({ stage: 'pages', message: `Fetched ${ghRes.pages.length} additional GitHub files`, current: pagesProcessed, total: pagesProcessed });
       }
     } catch (e: any) {
@@ -130,6 +135,7 @@ export async function ingestDocumentation(
     if (chunks.length > maxChunks) {
       logger.warn(`Truncating from ${chunks.length} to ${maxChunks} chunks`);
       chunks = chunks.slice(0, maxChunks);
+      truncated = true;
       break;
     }
   }
@@ -169,7 +175,11 @@ export async function ingestDocumentation(
       totalChunks: chunks.length,
       totalChars,
       pagesProcessed,
+      pagesDiscovered,
       durationMs: Date.now() - start,
+      truncated,
+      maxChunks,
+      maxPages,
     },
     rawMarkdown: (pagesToProcess[0]?.content || '').slice(0, 50_000),
   };

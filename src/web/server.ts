@@ -17,6 +17,7 @@ import type { EmbeddingModel } from '../rag/models.js';
 import { getPaths, ensureDirectories, getServerDir } from '../core/paths.js';
 import fs from 'fs-extra';
 import path from 'node:path';
+import net from 'node:net';
 import { randomBytes } from 'node:crypto';
 import { execSync } from 'node:child_process';
 
@@ -70,6 +71,35 @@ function openBrowser(url: string) {
   } catch {
     // ignore
   }
+}
+
+async function canBind(host: string, port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once('error', () => resolve(false));
+    server.once('listening', () => {
+      server.close(() => resolve(true));
+    });
+    server.listen(port, host);
+  });
+}
+
+export async function resolveGuiPort(host: string, requestedPort: number, strict: boolean): Promise<number> {
+  if (await canBind(host, requestedPort)) return requestedPort;
+
+  if (strict) {
+    throw new Error(
+      `Port ${requestedPort} is already in use on ${host}. Next: stop the other process or run hoolix gui --port ${requestedPort + 1}.`
+    );
+  }
+
+  for (let port = requestedPort + 1; port < requestedPort + 50; port++) {
+    if (await canBind(host, port)) return port;
+  }
+
+  throw new Error(
+    `Could not find a free Web GUI port near ${requestedPort}. Next: pass hoolix gui --port <free-port>.`
+  );
 }
 
 function buildDashboardHtml(_initialToken: string): string {
@@ -666,6 +696,7 @@ function createApp(token: string) {
       ingestionVersion: '1.0.0',
       embeddingModel,
       chunkCount: result.stats.totalChunks,
+      ingestionStats: result.stats,
       vectorIndexed: isHybridModel(embeddingModel),
       authKey: generateAuthKey(),
       desiredState: 'stopped',
@@ -720,6 +751,7 @@ function createApp(token: string) {
 
     await updateServerMetadata(slug, {
       chunkCount: result.stats.totalChunks,
+      ingestionStats: result.stats,
       embeddingModel: em,
       vectorIndexed: isHybridModel(em),
     });
@@ -804,8 +836,8 @@ function createApp(token: string) {
   return app;
 }
 
-export async function launchWebGui(opts: { port?: number; host?: string; open?: boolean; token?: string } = {}) {
-  const port = opts.port || 8080;
+export async function launchWebGui(opts: { port?: number; host?: string; open?: boolean; token?: string; strictPort?: boolean } = {}) {
+  const requestedPort = opts.port || 8080;
   const host = opts.host || '127.0.0.1';
   const shouldOpen = opts.open !== false;
   let token = opts.token;
@@ -814,12 +846,16 @@ export async function launchWebGui(opts: { port?: number; host?: string; open?: 
     token = await getOrCreateGuiToken();
   }
 
+  const port = await resolveGuiPort(host, requestedPort, opts.strictPort === true);
   const urlBase = `http://${host}:${port}`;
   const fullUrl = `${urlBase}/?token=${token}`;
   const displayUrl = `${urlBase}/?token=${maskSecret(token)}`;
 
   logger.info(`Starting Hoolix Web GUI`);
   console.log(`\n◆ Hoolix Web GUI (beta)`);
+  if (port !== requestedPort) {
+    console.log(`  Port ${requestedPort} is in use; using ${port} instead.`);
+  }
   console.log(`  Open: ${displayUrl}`);
   if (host !== '127.0.0.1') {
     console.log(`  WARNING: Listening on ${host}. Protect this port!`);
@@ -832,11 +868,15 @@ export async function launchWebGui(opts: { port?: number; host?: string; open?: 
 
   const app = createApp(token);
 
-  serve({
-    fetch: app.fetch,
-    port,
-    hostname: host,
-  } as any);
+  try {
+    serve({
+      fetch: app.fetch,
+      port,
+      hostname: host,
+    } as any);
+  } catch (e: any) {
+    throw new Error(e?.message || `Failed to start Web GUI on ${host}:${port}. Next: try hoolix gui --port ${port + 1}.`);
+  }
 
   console.log(`\nWeb GUI is running. Use Ctrl+C to stop.`);
   // Keep alive

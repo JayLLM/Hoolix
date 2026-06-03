@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import fs from 'fs-extra';
 import path from 'node:path';
-import { getServerDataDir } from '../src/core/paths.js';
+import { getPaths, getServerDataDir } from '../src/core/paths.js';
 import { createRAGForServer, cosineSimilarity, reciprocalRankFusion } from '../src/rag/store.js';
 import type { IngestedChunk } from '../src/ingestion/types.js';
 import type { RAGSearchOptions } from '../src/rag/types.js';
@@ -27,6 +27,15 @@ async function cleanup() {
   try {
     const dir = getServerDataDir(TEST_SLUG);
     if (await fs.pathExists(dir)) await fs.remove(dir);
+    const serversDir = getPaths().servers;
+    if (await fs.pathExists(serversDir)) {
+      const entries = await fs.readdir(serversDir);
+      for (const entry of entries) {
+        if (entry.startsWith(TEST_SLUG)) {
+          await fs.remove(path.join(serversDir, entry));
+        }
+      }
+    }
   } catch {}
 }
 
@@ -89,6 +98,22 @@ describe('DocumentationRAG (search / read / toc)', () => {
     expect(guide?.level).toBe(1);
   });
 
+  it('getTableOfContents preserves source order instead of alphabetical order', async () => {
+    const rag = await createRAGForServer(TEST_SLUG + '-toc-order');
+    await rag.indexChunks([
+      makeChunk('api reference first', 'https://ex.com/reference.md', 'Reference > API', 0),
+      makeChunk('getting started second', 'https://ex.com/guide.md', 'Guide > Basics', 1),
+    ]);
+
+    const toc = await rag.getTableOfContents();
+    expect(toc.map(t => t.sectionPath)).toEqual([
+      'Reference',
+      'Reference > API',
+      'Guide',
+      'Guide > Basics',
+    ]);
+  });
+
   it('returns empty results gracefully for empty index', async () => {
     const rag = await createRAGForServer(TEST_SLUG + '-empty');
     const res = await rag.search('anything');
@@ -123,5 +148,34 @@ describe('DocumentationRAG (search / read / toc)', () => {
 
     const rrf = reciprocalRankFusion([{ id: 'a' }, { id: 'b' }], [{ id: 'b' }, { id: 'c' }]);
     expect(rrf.get('b')).toBeGreaterThan(0);
+  });
+
+  it('ranks weak single-word queries by title and section, not incidental mentions', async () => {
+    const rag = await createRAGForServer(TEST_SLUG + '-weak-query');
+    await rag.indexChunks([
+      makeChunk('Release notes mention install once as historical context.', 'https://ex.com/changelog.md', 'Release Notes', 0),
+      makeChunk('Run bun install, then hoolix create, verify, start, and connect.', 'https://ex.com/install.md', 'Getting Started > Installation', 1),
+      makeChunk('Troubleshooting also mentions install failures in passing.', 'https://ex.com/troubleshooting.md', 'Troubleshooting', 2),
+    ]);
+
+    const res = await rag.search('install', { limit: 3, mode: 'keyword' });
+    expect(res.length).toBeGreaterThan(0);
+    expect(res[0].metadata.url).toContain('install.md');
+    expect(res[0].metadata.sectionPath).toContain('Installation');
+  });
+
+  it('reports source coverage diagnostics from indexed chunks', async () => {
+    const rag = await createRAGForServer(TEST_SLUG + '-diagnostics');
+    await rag.indexChunks([
+      makeChunk('one', 'https://ex.com/a.md', 'A', 0),
+      makeChunk('two', 'https://ex.com/a.md', 'A > Two', 1),
+      makeChunk('three', 'https://ex.com/b.md', 'B', 2),
+    ]);
+
+    const diagnostics = await rag.getDiagnostics();
+    expect(diagnostics.totalChunks).toBe(3);
+    expect(diagnostics.sourceCoveragePercent).toBe(100);
+    expect(diagnostics.uniqueSourceUrls).toBe(2);
+    expect(diagnostics.duplicateChunkIds).toBe(0);
   });
 });

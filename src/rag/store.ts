@@ -5,6 +5,7 @@ import type {
   SearchResult,
   ReadPageResult,
   TableOfContentsItem,
+  RAGDiagnostics,
   RAGSearchOptions,
   EmbeddingModel,
 } from './types.js';
@@ -63,6 +64,32 @@ export function reciprocalRankFusion(
 
 const CHUNKS_FILE = 'chunks.json';
 const EMBEDDINGS_FILE = 'embeddings.json';
+const STOP_WORDS = new Set([
+  'the', 'and', 'for', 'with', 'that', 'this', 'from', 'into', 'your', 'you',
+  'are', 'was', 'were', 'have', 'has', 'had', 'not', 'but', 'can', 'will',
+  'how', 'what', 'when', 'where', 'why', 'who', 'use', 'using', 'used', 'run',
+  'get', 'set', 'new', 'old', 'all', 'any', 'docs', 'doc',
+]);
+
+function tokenizeQuery(query: string): string[] {
+  const tokens = query
+    .toLowerCase()
+    .split(/[^a-z0-9_/-]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 1 && !STOP_WORDS.has(token));
+  return Array.from(new Set(tokens));
+}
+
+function countOccurrences(haystack: string, needle: string): number {
+  if (!needle) return 0;
+  let count = 0;
+  let index = haystack.indexOf(needle);
+  while (index !== -1) {
+    count++;
+    index = haystack.indexOf(needle, index + needle.length);
+  }
+  return count;
+}
 
 /**
  * RAG store (advanced hybrid v2).
@@ -152,6 +179,54 @@ export class DocumentationRAG {
       includeScore: true,
       minMatchCharLength: 2,
     });
+  }
+
+  private scoreKeywordMatch(chunk: StoredChunk, query: string, terms: string[]): number {
+    if (terms.length === 0) return 0;
+
+    const content = chunk.content.toLowerCase();
+    const title = (chunk.metadata.title || '').toLowerCase();
+    const section = (chunk.metadata.sectionPath || '').toLowerCase();
+    const url = (chunk.metadata.url || '').toLowerCase();
+    const combined = `${title} ${section} ${url} ${content}`;
+    const queryText = query.toLowerCase().trim();
+
+    let score = 0;
+    let matchedTerms = 0;
+
+    if (queryText.length > 3 && combined.includes(queryText)) {
+      score += 0.28;
+    }
+
+    for (const term of terms) {
+      const inTitle = title.includes(term);
+      const inSection = section.includes(term);
+      const inUrl = url.includes(term);
+      const contentHits = Math.min(4, countOccurrences(content, term));
+
+      if (inTitle || inSection || inUrl || contentHits > 0) {
+        matchedTerms++;
+        score += 0.05;
+      }
+      if (inTitle) score += 0.3;
+      if (inSection) score += 0.24;
+      if (inUrl) score += 0.12;
+      if (contentHits > 0) score += Math.min(0.22, 0.07 * contentHits);
+    }
+
+    if (matchedTerms === 0) return 0;
+
+    const coverage = matchedTerms / terms.length;
+    score += coverage * 0.28;
+    if (coverage === 1 && terms.length > 1) score += 0.18;
+
+    const weakSingleToken = terms.length === 1 && !(title.includes(terms[0]) || section.includes(terms[0]) || url.includes(terms[0]));
+    if (weakSingleToken) score *= 0.72;
+
+    const charCount = Math.max(1, chunk.metadata.charCount || chunk.content.length);
+    if (charCount > 2200) score *= 0.94;
+
+    return Math.max(0, Math.min(0.99, score));
   }
 
   /**
@@ -288,24 +363,48 @@ export class DocumentationRAG {
     if (this.chunks.length === 0) return [];
 
     // === Keyword path (always computed; used for kw mode, hybrid fusion, and fallback) ===
-    const words = qLower.split(/\s+/).filter((w) => w.length > 2);
-    const directMatches = this.chunks.filter((c) => {
-      const text = (c.content + ' ' + c.metadata.title + ' ' + (c.metadata.sectionPath || '')).toLowerCase();
-      return words.some((w) => text.includes(w));
-    });
+    const words = tokenizeQuery(qLower);
+    const scoredMatches = this.chunks
+      .map((c) => ({ id: c.id, item: c, score: this.scoreKeywordMatch(c, query, words) }))
+      .filter((match) => match.score > 0)
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return (a.item.metadata.order ?? 0) - (b.item.metadata.order ?? 0);
+      });
 
     let kwRanked: Array<{ id: string; item: StoredChunk; score: number }> = [];
-    if (directMatches.length > 0) {
-      kwRanked = directMatches.map((c) => ({ id: c.id, item: c, score: 0.95 }));
-    } else if (this.fuse) {
+    if (scoredMatches.length > 0) {
+      kwRanked = scoredMatches;
+    }
+
+    if (this.fuse) {
       const fuseRes = this.fuse.search(query, { limit: Math.min(limit * 5, 100) });
-      kwRanked = fuseRes.map((fr) => ({
-        id: fr.item.id,
-        item: fr.item,
-        score: Math.max(0.3, 1 - Math.min(1, fr.score ?? 0.5)),
+      const byId = new Map(kwRanked.map((entry) => [entry.id, entry]));
+      for (const fr of fuseRes) {
+        const fuseScore = Math.max(0.3, 1 - Math.min(1, fr.score ?? 0.5)) * 0.86;
+        const existing = byId.get(fr.item.id);
+        if (existing) {
+          existing.score = Math.max(existing.score, fuseScore);
+        } else {
+          byId.set(fr.item.id, {
+            id: fr.item.id,
+            item: fr.item,
+            score: fuseScore,
+          });
+        }
+      }
+      kwRanked = Array.from(byId.values()).sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return (a.item.metadata.order ?? 0) - (b.item.metadata.order ?? 0);
+      });
+    }
+
+    if (kwRanked.length === 0) {
+      kwRanked = this.chunks.slice(0, limit * 3).map((c) => ({
+        id: c.id,
+        item: c,
+        score: 0.35,
       }));
-    } else {
-      kwRanked = this.chunks.slice(0, limit * 3).map((c) => ({ id: c.id, item: c, score: 0.6 }));
     }
 
     // Optional pre-filter
@@ -442,13 +541,43 @@ export class DocumentationRAG {
               level: idx + 1,
               url: chunk.metadata.url,
               sectionPath: key,
+              order: chunk.metadata.order,
             });
           }
         });
       }
     }
 
-    return Array.from(toc.values()).sort((a, b) => a.sectionPath!.localeCompare(b.sectionPath!));
+    return Array.from(toc.values());
+  }
+
+  async getDiagnostics(): Promise<RAGDiagnostics> {
+    await this.initialize();
+    const urls = this.chunks
+      .map((chunk) => chunk.metadata.url)
+      .filter((url): url is string => typeof url === 'string' && url.length > 0);
+    const uniqueUrls = Array.from(new Set(urls));
+    const ids = new Set<string>();
+    let duplicates = 0;
+    for (const chunk of this.chunks) {
+      if (ids.has(chunk.id)) duplicates++;
+      ids.add(chunk.id);
+    }
+
+    const ordered = this.chunks.every((chunk) => typeof chunk.metadata.order === 'number');
+
+    const totalChars = this.chunks.reduce((sum, chunk) => sum + (chunk.metadata.charCount || chunk.content.length), 0);
+    return {
+      totalChunks: this.chunks.length,
+      chunksWithUrl: urls.length,
+      sourceCoveragePercent: this.chunks.length === 0 ? 0 : Math.round((urls.length / this.chunks.length) * 100),
+      uniqueSourceUrls: uniqueUrls.length,
+      totalChars,
+      averageChunkChars: this.chunks.length === 0 ? 0 : Math.round(totalChars / this.chunks.length),
+      ordered,
+      duplicateChunkIds: duplicates,
+      urls: uniqueUrls.slice(0, 20),
+    };
   }
 
   async close() {

@@ -22,7 +22,11 @@ export interface IngestionResult {
     totalChunks: number;
     totalChars: number;
     pagesProcessed: number;
+    pagesDiscovered?: number;
     durationMs: number;
+    truncated: boolean;
+    maxChunks: number;
+    maxPages: number;
   };
   rawMarkdown?: string; // optional: store a concatenated version for debugging/export
 }

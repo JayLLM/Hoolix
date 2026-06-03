@@ -27,6 +27,19 @@ export interface TableOfContentsItem {
   level: number;
   url?: string;
   sectionPath?: string;
+  order?: number;
+}
+
+export interface RAGDiagnostics {
+  totalChunks: number;
+  chunksWithUrl: number;
+  sourceCoveragePercent: number;
+  uniqueSourceUrls: number;
+  totalChars: number;
+  averageChunkChars: number;
+  ordered: boolean;
+  duplicateChunkIds: number;
+  urls: string[];
 }
 
 export interface RAGSearchOptions {
@@ -46,6 +59,7 @@ export class DocumentationRAG {
   async search(query: string, opts?: RAGSearchOptions): Promise<SearchResult[]>;
   async readPage(urlOrPath: string, maxChunks?: number): Promise<ReadPageResult | null>;
   async getTableOfContents(): Promise<TableOfContentsItem[]>;
+  async getDiagnostics(): Promise<RAGDiagnostics>;
   async close(): Promise<void>; // no-op for file backend
 }
 
@@ -56,10 +70,11 @@ export async function createRAGForServer(slug: string): Promise<DocumentationRAG
 
 ## Behavior Notes
 
-- `search` always tries a cheap direct keyword filter first across the three fields; only falls back to Fuse when that yields zero hits.
+- `search` combines scored keyword matching (phrase/title/section/URL boosts, term coverage, weak-query penalties) with Fuse fuzzy matches, then optional semantic/RRF fusion for hybrid servers.
 - `readPage` matches on url substring or sectionPath substring.
 - All results preserve the original `metadata.url` from the chunk (the real page, never the manifest root).
-- TOC is derived purely from `sectionPath` strings; no separate outline parsing at ingest time.
+- TOC is derived purely from `sectionPath` strings in source order; no separate outline parsing at ingest time.
+- `getDiagnostics` powers `verify` source coverage and duplicate chunk checks.
 
 ## Usage in MCP Host
 

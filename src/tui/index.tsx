@@ -202,7 +202,7 @@ export async function launchTUI(): Promise<void> {
         const res = await ingestDocumentation(m.sourceUrl, { maxChunks: 6000, maxPages: 80 });
         const r = await createRAGForServer(slug, (m as any).embeddingModel || 'fuse');
         await r.indexChunks(res.chunks);
-        await updateServerMetadata(slug, { chunkCount: res.stats.totalChunks });
+        await updateServerMetadata(slug, { chunkCount: res.stats.totalChunks, ingestionStats: res.stats });
         state.actionStatus = `Reindexed ${slug} (${res.stats.totalChunks} chunks)`;
       } else if (key === 'v') {
         const { createRAGForServer } = await import('../rag/store.js');

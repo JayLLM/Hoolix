@@ -26,6 +26,19 @@ export interface TableOfContentsItem {
   level: number;
   url?: string;
   sectionPath?: string;
+  order?: number;
+}
+
+export interface RAGDiagnostics {
+  totalChunks: number;
+  chunksWithUrl: number;
+  sourceCoveragePercent: number;
+  uniqueSourceUrls: number;
+  totalChars: number;
+  averageChunkChars: number;
+  ordered: boolean;
+  duplicateChunkIds: number;
+  urls: string[];
 }
 
 // Re-export the canonical union + helpers (source of truth lives in ./models.ts for DRY + easy extension of new hybrid models)
