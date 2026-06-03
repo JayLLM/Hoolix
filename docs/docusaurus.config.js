@@ -12,7 +12,7 @@ const config = {
   favicon: 'img/favicon.ico',
 
   url: 'https://hoolix.app',
-  baseUrl: '/hoolix/',
+  baseUrl: '/',
 
   organizationName: 'JayLLM',
   projectName: 'hoolix',
