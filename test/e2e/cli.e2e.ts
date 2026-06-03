@@ -41,6 +41,21 @@ describe('CLI e2e (tsx + isolated MCP_PORTAL_DATA_DIR)', () => {
         expect(connectJson.mcpServers[SLUG].type).toBe('streamable-http');
         expect(connectJson.mcpServers[SLUG].headers.Authorization).toContain(beforeRotate.authKey);
 
+        const exportPath = path.join(dataDir, 'fixture-export.hoolix.json');
+        const exported = await runCli(['export', SLUG, '--file', exportPath, '--json'], { env });
+        expect(exported.code, exported.combined).toBe(0);
+        expect(await fs.pathExists(exportPath)).toBe(true);
+
+        const imported = await runCli(['import', '--file', exportPath, '--slug', 'e2e-imported-docs', '--json'], { env });
+        expect(imported.code, imported.combined).toBe(0);
+        const importedJson = JSON.parse(imported.stdout.slice(imported.stdout.indexOf('{')));
+        expect(importedJson.slug).toBe('e2e-imported-docs');
+
+        const importedVerify = await runCli(['verify', 'e2e-imported-docs', '--json'], { env });
+        expect(importedVerify.code, importedVerify.combined).toBe(0);
+        const importedDir = path.join(dataDir, 'servers', 'e2e-imported-docs');
+        expect(await fs.pathExists(importedDir)).toBe(true);
+
         const rotated = await runCli(['rotate', SLUG, '--yes'], { env });
         expect(rotated.code, rotated.combined).toBe(0);
         expect(rotated.combined).toContain('Key rotated');
@@ -71,6 +86,10 @@ describe('CLI e2e (tsx + isolated MCP_PORTAL_DATA_DIR)', () => {
         const deleted = await runCli(['delete', SLUG, '--yes'], { env });
         expect(deleted.code, deleted.combined).toBe(0);
         expect(await fs.pathExists(serverDir)).toBe(false);
+
+        const deletedImport = await runCli(['delete', 'e2e-imported-docs', '--yes'], { env });
+        expect(deletedImport.code, deletedImport.combined).toBe(0);
+        expect(await fs.pathExists(importedDir)).toBe(false);
       });
     } finally {
       await fixture.close();

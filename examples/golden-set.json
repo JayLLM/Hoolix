@@ -1,0 +1,14 @@
+[
+  {
+    "query": "how do I install the package",
+    "expectUrlContains": "install"
+  },
+  {
+    "query": "how do I rotate an auth key",
+    "expectUrlContains": "auth"
+  },
+  {
+    "query": "how do I connect cursor",
+    "expectUrlContains": "connect"
+  }
+]

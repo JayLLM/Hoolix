@@ -97,12 +97,22 @@ hoolix audit <slug> [--json] [--limit N] [--tool <tool>] [--since <2026-...>]
 
 Queries the append-only per-server `audit.log` (written by the MCP host on every tool invocation + rate limit events).
 
-- `--json` for machine consumption (includes full entries).
+- `--json` for machine consumption (includes summary + full entries).
 - Filters for recent activity, specific tools (e.g. `search_documentation`), or time prefix.
 - Entries include: ts, tool, query snippet (truncated), hits, rate_limited details, etc.
+- Summary includes tool counts, top tool, time range, rate-limit count, and average hits per search.
 - Log is rotated/truncated server-side when > ~5k lines (keeps recent 80%).
 
 This is the foundation for security review, abuse detection, and hosted usage accounting.
+
+## import / export
+
+```bash
+hoolix export <slug> [--file <path>] [--include-key] [--json]
+hoolix import --file <path> [--slug <slug>] [--yes] [--json]
+```
+
+Exports metadata, chunks, and embeddings into a `.hoolix.json` bundle. Auth keys are omitted by default; pass `--include-key` only for private backups you control. Import generates a fresh key when the bundle does not include one.
 
 ## Other Commands / Global Behavior
 

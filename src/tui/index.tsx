@@ -33,14 +33,28 @@ function renderUI(state: State) {
   console.clear();
   console.log(
     chalk.hex('#7dd3fc').bold('hoolix TUI') +
-      chalk.dim('  (q quit • r refresh • 1-9 select • ↑↓ • s start/stop • v verify • c connect • i info • x reindex)')
+      chalk.dim('  (q quit • n new • r refresh • 1-9 select • ↑↓ • s start/stop • v verify • c connect • i info • x reindex)')
   );
 
   const runningCount = Object.values(state.statuses).filter((s) => s.running).length;
   console.log(chalk.dim(`${state.servers.length} server(s) • ${runningCount} running`));
 
   if (state.servers.length === 0) {
-    console.log('No servers yet. Run: hoolix create "Name" --url https://.../llms.txt --yes');
+    console.log('');
+    console.log(chalk.bold('No servers yet.'));
+    console.log('Start with a trusted docs source, then verify before connecting an agent.');
+    console.log('');
+    console.log(chalk.hex('#7dd3fc')('  1. ') + 'hoolix create "My Docs" --url https://example.com/llms.txt --yes');
+    console.log(chalk.hex('#7dd3fc')('  2. ') + 'hoolix verify my-docs');
+    console.log(chalk.hex('#7dd3fc')('  3. ') + 'hoolix start my-docs && hoolix connect my-docs --client cursor');
+    console.log('');
+    console.log(chalk.dim('Press n to copy a create command template, r to refresh, q to quit.'));
+    if (state.actionStatus) {
+      console.log('');
+      state.actionStatus.split('\n').forEach((line) => {
+        console.log(chalk.yellow(line));
+      });
+    }
     return;
   }
 
@@ -171,7 +185,17 @@ export async function launchTUI(): Promise<void> {
   }
 
   async function performAction(key: string) {
-    if (state.servers.length === 0) return;
+    if (state.servers.length === 0) {
+      if (key === 'n') {
+        const command = 'hoolix create "My Docs" --url https://example.com/llms.txt --yes';
+        const copied = await copyToClipboard(command);
+        state.actionStatus = copied
+          ? `Copied create command:\n${command}`
+          : `Create command:\n${command}`;
+        doRender();
+      }
+      return;
+    }
     const idx = state.selectedIndex;
     const sel = state.servers[idx];
     const slug = sel.slug;
@@ -283,7 +307,7 @@ export async function launchTUI(): Promise<void> {
     }
 
     const lower = key.toLowerCase();
-    if (['s', 'v', 'c', 'i', 'x'].includes(lower)) {
+    if (['s', 'v', 'c', 'i', 'x', 'n'].includes(lower)) {
       await performAction(lower);
       return;
     }

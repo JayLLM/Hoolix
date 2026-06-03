@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import net from 'node:net';
 import { resolveGuiPort } from '../src/web/server.js';
+import { buildDashboardHtml } from '../src/web/assets.js';
 
 async function holdPort(host = '127.0.0.1'): Promise<{ port: number; close: () => Promise<void> }> {
   const server = net.createServer();
@@ -36,5 +37,13 @@ describe('Web GUI port resolution', () => {
     } finally {
       await held.close();
     }
+  });
+
+  it('serves bundled GUI assets without CDN dependencies', () => {
+    const html = buildDashboardHtml('');
+    expect(html).not.toContain('cdn.tailwindcss.com');
+    expect(html).not.toContain('cdnjs.cloudflare.com');
+    expect(html).not.toContain('fonts.googleapis.com');
+    expect(html).toContain('function refreshServers');
   });
 });

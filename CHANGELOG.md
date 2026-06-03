@@ -14,12 +14,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added richer `verify` trust signals for source coverage, unique source URLs, ingestion cap/truncation status, duplicate chunk IDs, weak sample queries, and ordered TOC previews in JSON output.
 - Added persisted ingestion stats to server metadata so create/reindex caps can be reported later by `verify`.
 - Added RAG diagnostics and tests for source coverage, ordered table-of-contents output, and weak-query relevance.
+- Added `hoolix export` / `hoolix import` for `.hoolix.json` server bundles, with auth keys omitted by default.
+- Added first-run TUI guidance with copyable create-command template for empty registries.
+- Added golden-set RAG eval example (`examples/golden-eval.ts` + `examples/golden-set.json`).
+- Added ADRs for bundled Web GUI assets, pure-Node TUI, and optional hybrid RAG.
 
 ### Changed
 
 - Improved default keyword ranking with phrase, title, section, URL, term-coverage, and weak single-token scoring instead of flat direct-match scores.
 - Changed table-of-contents reconstruction to preserve source order rather than alphabetical section-path order.
 - Fixed `hoolix gui` startup so default port conflicts auto-select the next free port and explicit `--port` conflicts show an actionable error instead of a raw server stack trace.
+- Improved `list`, `info`, and `verify --json` freshness reporting so stale servers are easier to spot before reconnecting agents.
+- Improved `connect` by validating auto-written client config entries after merge.
+- Improved `audit` with summaries by tool, time range, rate-limit count, top tool, and average hits per search.
+- Split Web GUI assets out of `src/web/server.ts` and replaced CDN Tailwind/Font Awesome/font dependencies with bundled local CSS.
 
 ## [0.0.1-beta.2] - 2026-06-03
 

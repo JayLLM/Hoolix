@@ -125,6 +125,24 @@ function statusText(ok: boolean, positive = 'ok', negative = 'issue'): string {
   return ok ? ui.success(positive) : ui.danger(negative);
 }
 
+function parseOption(args: string[], name: string): string | undefined {
+  const idx = args.indexOf(name);
+  return idx !== -1 && args[idx + 1] ? args[idx + 1] : undefined;
+}
+
+function getFreshness(lastUpdatedAt: string): { ageDays: number; status: 'fresh' | 'aging' | 'stale'; message: string } {
+  const updated = Date.parse(lastUpdatedAt);
+  const ageDays = Number.isFinite(updated)
+    ? Math.max(0, Math.floor((Date.now() - updated) / (24 * 60 * 60 * 1000)))
+    : 9999;
+  const status = ageDays >= 30 ? 'stale' : ageDays >= 14 ? 'aging' : 'fresh';
+  return {
+    ageDays,
+    status,
+    message: status === 'fresh' ? `${ageDays}d old` : `${ageDays}d old - run reindex if source changed`,
+  };
+}
+
 // ===== Connect command helpers (client config paths, clipboard, instructions) =====
 
 type ClientId = 'claude' | 'cursor' | 'windsurf' | 'continue' | 'cline' | 'grokbuild' | 'generic';
@@ -326,6 +344,14 @@ async function main() {
       await cmdAudit(args);
       return;
 
+    case 'export':
+      await cmdExport(args, jsonOutput);
+      return;
+
+    case 'import':
+      await cmdImport(args, jsonOutput);
+      return;
+
     case 'start':
       await cmdStart(args, jsonOutput);
       return;
@@ -416,6 +442,7 @@ async function cmdList(json: boolean) {
     Name: truncate(s.name, 28),
     Slug: s.slug,
     Chunks: s.chunkCount.toLocaleString(),
+    Freshness: getFreshness(s.lastUpdatedAt).message,
     Source: truncate(s.sourceUrl, 48),
     Created: formatDate(s.createdAt),
   }));
@@ -785,6 +812,22 @@ async function cmdReindex(args: string[], json: boolean) {
   }
 }
 
+async function validateClientConfigWrite(cfgPath: string, slug: string, expected: unknown): Promise<{ ok: boolean; issue?: string }> {
+  try {
+    const written = await fs.readJson(cfgPath);
+    const actual = written?.mcpServers?.[slug];
+    if (!actual || typeof actual !== 'object') {
+      return { ok: false, issue: 'server entry missing after write' };
+    }
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+      return { ok: false, issue: 'server entry differs after write' };
+    }
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, issue: e?.message || String(e) };
+  }
+}
+
 async function cmdVerify(args: string[]) {
   const slug = args[1];
   if (!slug) {
@@ -875,6 +918,7 @@ async function cmdVerify(args: string[]) {
       tocEntries: toc.length,
       tocPreview: toc.slice(0, 12),
       embeddingModel: meta.embeddingModel,
+      freshness: getFreshness(meta.lastUpdatedAt),
     }, null, 2));
     return;
   }
@@ -886,6 +930,7 @@ async function cmdVerify(args: string[]) {
   printDetails([
     ['Registry chunks', meta.chunkCount.toLocaleString()],
     ['Source', truncate(meta.sourceUrl, 92)],
+    ['Freshness', getFreshness(meta.lastUpdatedAt).message],
     ['Validation', statusText(v.valid, 'ok', 'issues')],
   ]);
   if (!v.valid) {
@@ -1050,6 +1095,7 @@ async function cmdInfo(args: string[], json: boolean) {
   const full = {
     ...meta,
     authKey: maskSecret(meta.authKey),
+    freshness: getFreshness(meta.lastUpdatedAt),
     running: status.running,
     port: status.port,
     pid: status.pid,
@@ -1066,6 +1112,7 @@ async function cmdInfo(args: string[], json: boolean) {
     ['Type', meta.sourceType],
     ['Chunks', meta.chunkCount.toLocaleString()],
     ['Index', isHybridModel(meta.embeddingModel as any) ? `Hybrid (${meta.embeddingModel})` : 'Fuse.js'],
+    ['Freshness', getFreshness(meta.lastUpdatedAt).message],
     ['Status', `${status.running ? ui.success('running') : ui.muted('stopped')}${status.port ? ` on :${status.port}` : ''}`],
     ['Created', new Date(meta.createdAt).toLocaleString()],
   ]);
@@ -1660,8 +1707,14 @@ async function cmdConnect(args: string[], json: boolean) {
 
     await fs.ensureDir(path.dirname(cfgPath));
     await fs.writeJson(cfgPath, existing, { spaces: 2 });
+    const validation = await validateClientConfigWrite(cfgPath, slug, mcpEntry);
     logger.success(`Merged server "${slug}" into ${client} config.`);
     console.log(`  ${ui.muted('File:')} ${cfgPath}`);
+    if (validation.ok) {
+      console.log(`  ${ui.success('✓')} Config validation passed.`);
+    } else {
+      logger.warn(`Config validation failed after write: ${validation.issue}`);
+    }
   } else {
     logger.info(`No auto-write path for client "${client}" (or generic chosen). Follow manual steps below.`);
   }
@@ -1805,9 +1858,10 @@ async function cmdAudit(args: string[]) {
   // Newest first
   entries.sort((a, b) => String(b.ts || '').localeCompare(String(a.ts || '')));
   const shown = entries.slice(0, limit);
+  const summary = summarizeAudit(entries);
 
   if (json) {
-    console.log(JSON.stringify({ slug, count: entries.length, showing: shown.length, entries: shown }, null, 2));
+    console.log(JSON.stringify({ slug, count: entries.length, showing: shown.length, summary, entries: shown }, null, 2));
     return;
   }
 
@@ -1815,8 +1869,17 @@ async function cmdAudit(args: string[]) {
   printDetails([
     ['Total entries', entries.length],
     ['Showing (newest first)', shown.length],
+    ['Time range', summary.firstTs && summary.lastTs ? `${summary.firstTs} -> ${summary.lastTs}` : 'n/a'],
+    ['Top tool', summary.topTool || 'n/a'],
+    ['Rate limited', summary.rateLimited],
+    ['Avg hits/search', summary.avgHitsPerSearch],
     ['Log path', auditPath],
   ]);
+  if (Object.keys(summary.byTool).length > 0) {
+    console.log('');
+    printSection('Summary by tool');
+    printTable(Object.entries(summary.byTool).map(([tool, count]) => ({ tool, count })));
+  }
   console.log('');
 
   if (shown.length === 0) {
@@ -1841,6 +1904,151 @@ async function cmdAudit(args: string[]) {
     console.log(`  ${ui.muted(`... ${entries.length - limit} more (use --limit or --json for full)`)}`);
   }
   console.log(`  ${ui.muted('Filters: --tool search_documentation --since 2026- --limit 100')}`);
+}
+
+function summarizeAudit(entries: Array<Record<string, unknown>>) {
+  const chronological = [...entries].sort((a, b) => String(a.ts || '').localeCompare(String(b.ts || '')));
+  const byTool: Record<string, number> = {};
+  let hitsTotal = 0;
+  let searchCount = 0;
+  let rateLimited = 0;
+
+  for (const entry of entries) {
+    const tool = String(entry.tool || 'unknown');
+    byTool[tool] = (byTool[tool] || 0) + 1;
+    if (tool === 'rate_limited') rateLimited++;
+    if (tool === 'search_documentation' && typeof entry.hits === 'number') {
+      hitsTotal += entry.hits;
+      searchCount++;
+    }
+  }
+
+  const topTool = Object.entries(byTool).sort((a, b) => b[1] - a[1])[0]?.[0];
+  return {
+    firstTs: chronological[0]?.ts || null,
+    lastTs: chronological[chronological.length - 1]?.ts || null,
+    byTool,
+    topTool,
+    rateLimited,
+    avgHitsPerSearch: searchCount > 0 ? Math.round((hitsTotal / searchCount) * 10) / 10 : 0,
+  };
+}
+
+async function cmdExport(args: string[], json: boolean) {
+  const slug = args[1];
+  if (!slug) {
+    if (json) printJson({ ok: false, error: 'Missing slug. Next: pass hoolix export <slug> --file <path>.' });
+    else logger.error('Usage: hoolix export <slug> [--file <path>] [--include-key] [--json]');
+    process.exit(1);
+  }
+
+  const meta = await getServerMetadata(slug);
+  const dataDir = getServerDataDir(slug);
+  const file = parseOption(args, '--file') || `${slug}.hoolix.json`;
+  const includeKey = args.includes('--include-key');
+  const chunksPath = path.join(dataDir, 'chunks.json');
+  const embeddingsPath = path.join(dataDir, 'embeddings.json');
+  const chunks = await fs.readJson(chunksPath).catch(() => []);
+  const embeddings = await fs.readJson(embeddingsPath).catch(() => null);
+  const exportedMeta = includeKey ? meta : { ...meta, authKey: undefined };
+
+  const bundle = {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    includeKey,
+    metadata: exportedMeta,
+    chunks,
+    embeddings,
+  };
+
+  await fs.ensureDir(path.dirname(path.resolve(file)));
+  await fs.writeJson(file, bundle, { spaces: 2 });
+
+  if (json) {
+    printJson({ ok: true, slug, file: path.resolve(file), chunks: Array.isArray(chunks) ? chunks.length : 0, includeKey });
+    return;
+  }
+
+  printTitle('Exported', slug);
+  printDetails([
+    ['File', path.resolve(file)],
+    ['Chunks', Array.isArray(chunks) ? chunks.length : 0],
+    ['Auth key included', includeKey ? 'yes' : 'no'],
+  ]);
+  if (!includeKey) console.log(`  ${ui.muted('A fresh auth key will be generated on import.')}`);
+}
+
+async function cmdImport(args: string[], json: boolean) {
+  const file = parseOption(args, '--file') || args[1];
+  if (!file) {
+    if (json) printJson({ ok: false, error: 'Missing file. Next: pass hoolix import --file <bundle.hoolix.json>.' });
+    else logger.error('Usage: hoolix import --file <path> [--slug <slug>] [--yes] [--json]');
+    process.exit(1);
+  }
+
+  const bundle = await fs.readJson(file).catch((e: any) => {
+    throw new Error(`Could not read import file: ${e.message || e}`);
+  });
+  if (!bundle || bundle.version !== 1 || !bundle.metadata || !Array.isArray(bundle.chunks)) {
+    if (json) printJson({ ok: false, file, error: 'Invalid hoolix export bundle.' });
+    else logger.error('Invalid hoolix export bundle.');
+    process.exit(1);
+  }
+
+  const importedMeta = bundle.metadata;
+  const slug = parseOption(args, '--slug') || importedMeta.slug || slugify(importedMeta.name || 'imported-docs');
+  const exists = await getServerMetadata(slug).then(() => true).catch(() => false);
+  if (exists) {
+    if (json) printJson({ ok: false, slug, error: 'Server already exists. Next: pass --slug <new-slug> or delete the existing server.' });
+    else logger.error(`Server "${slug}" already exists. Pass --slug <new-slug> or delete it first.`);
+    process.exit(1);
+  }
+
+  const force = args.includes('--yes') || args.includes('-y') || json;
+  if (!force) {
+    const confirmed = await confirm({ message: `Import "${importedMeta.name || slug}" as ${slug}?` });
+    if (isCancel(confirmed) || !confirmed) {
+      cancel('Import cancelled');
+      return;
+    }
+  }
+
+  const authKey = typeof importedMeta.authKey === 'string' && importedMeta.authKey.length >= 16
+    ? importedMeta.authKey
+    : generateAuthKey();
+  const meta = await registerServer({
+    name: importedMeta.name || slug,
+    slug,
+    sourceUrl: importedMeta.sourceUrl,
+    sourceType: importedMeta.sourceType || 'manual',
+    ingestionVersion: importedMeta.ingestionVersion || '1.0.0',
+    embeddingModel: (importedMeta.embeddingModel || 'fuse') as EmbeddingModel,
+    chunkCount: bundle.chunks.length,
+    ingestionStats: importedMeta.ingestionStats,
+    vectorIndexed: !!bundle.embeddings,
+    authKey,
+    desiredState: 'stopped',
+  });
+
+  const dataDir = getServerDataDir(slug);
+  await fs.ensureDir(dataDir);
+  await fs.writeJson(path.join(dataDir, 'chunks.json'), bundle.chunks, { spaces: 2 });
+  if (bundle.embeddings) {
+    await fs.writeJson(path.join(dataDir, 'embeddings.json'), bundle.embeddings, { spaces: 2 });
+  }
+
+  if (json) {
+    printJson({ ok: true, slug, name: meta.name, chunks: bundle.chunks.length, authKey: maskSecret(authKey) });
+    return;
+  }
+
+  printTitle('Imported', `${meta.name} (${slug})`);
+  printDetails([
+    ['Chunks', bundle.chunks.length],
+    ['Source', truncate(meta.sourceUrl, 92)],
+    ['Auth key', bundle.includeKey ? 'preserved from export' : 'generated fresh'],
+  ]);
+  printCommand(`hoolix verify ${slug}`);
 }
 
 async function runInternalHost(args: string[]) {
@@ -1900,6 +2108,8 @@ ${chalk.bold('Commands')}
   ${ui.accent('connect')} <slug>      Wire server into client (auto-merge + backup for claude/cursor/etc; --client, --project, --json)
   ${ui.accent('rotate')} <slug>       Rotate the Bearer auth key for a server (clients must be updated)
   ${ui.accent('audit')} <slug>        Query audit log (tool calls, rate limits, searches) with filters (--json, --limit, --tool, --since)
+  ${ui.accent('export')} <slug>       Export server metadata + chunks to a .hoolix.json bundle (--file, --include-key, --json)
+  ${ui.accent('import')} --file <path> Import a .hoolix.json bundle (--slug, --yes, --json)
   ${ui.accent('delete')} <slug>        Remove server and data (--yes, --json)
   ${ui.accent('reindex')} <slug>       Re-fetch source and rebuild the RAG index (--yes, --json, --hybrid, --embedding-model)
   ${ui.accent('verify')} <slug>        Check RAG health, samples, grounding + optional --eval / --json
@@ -1917,6 +2127,8 @@ ${chalk.bold('Examples')}
   ${ui.accent('›')} hoolix connect my-docs --client cursor
   ${ui.accent('›')} hoolix rotate my-docs
   ${ui.accent('›')} hoolix audit my-docs --limit 20 --json
+  ${ui.accent('›')} hoolix export my-docs --file my-docs.hoolix.json
+  ${ui.accent('›')} hoolix import --file my-docs.hoolix.json --slug my-docs-copy --json
   ${ui.accent('›')} hoolix gui
   ${ui.accent('›')} hoolix uninstall --yes
   ${ui.accent('›')} hoolix doctor --json

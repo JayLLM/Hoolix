@@ -68,3 +68,4 @@ hoolix turns a documentation URL into a production-grade, authenticated MCP serv
 - [RAG and MCP Tools](./rag-and-tools)
 - [Host & Process Model](./host-and-process)
 - [API Reference](../api-reference/core)
+- ADRs live in `docs/adr/`: `0001-web-gui-bundled-assets.md`, `0002-pure-node-tui.md`, `0003-optional-hybrid-rag.md`.

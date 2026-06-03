@@ -16,11 +16,13 @@ sidebar_position: 3
 | `hoolix stop <slug>` | Stop a running server |
 | `hoolix verify <slug>` | Exercise RAG (search/read/toc) and print samples + sources |
 | `hoolix reindex <slug>` | Re-fetch from original `sourceUrl` and rebuild index |
+| `hoolix export <slug> --file backup.hoolix.json` | Export metadata + chunks for backup or transfer |
+| `hoolix import --file backup.hoolix.json --slug copy` | Import an exported server bundle |
 | `hoolix delete <slug>` | Permanently remove server + data |
 | `hoolix doctor`      | Installation, paths, registry, network, and runtime checks |
 | `hoolix update`      | Self-update (compiled binaries only) |
 
-All list/info/doctor commands support `--json` for scripting and CI.
+Lifecycle and machine-readable commands support `--json` for scripting and CI.
 
 ## Common Flags
 

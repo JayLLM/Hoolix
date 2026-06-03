@@ -9,6 +9,7 @@ sidebar_position: 2
 
 - Upstream documentation has been updated.
 - You suspect drift (`list` or `info` shows validation warnings).
+- `list`, `info`, or `verify --json` shows an aging/stale freshness signal and the source may have changed.
 - You changed the source URL externally and want to point the server at new content.
 
 ```bash
@@ -16,6 +17,7 @@ hoolix reindex <slug> --yes
 ```
 
 Reindex keeps the same auth key and slug. Only `chunkCount`, `sourceType`, and the on-disk `chunks.json` change.
+It also refreshes persisted ingestion stats so `verify` can report cap/truncation details and source coverage accurately.
 
 ## The verify Command (Your Best Friend)
 
