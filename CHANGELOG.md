@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed Support for macOS Intel
+
+App currently hangs during github workflow. Will be investigated later. 
+
 ## [0.0.1-beta.1] - 2026-06-03
 
 ### Added

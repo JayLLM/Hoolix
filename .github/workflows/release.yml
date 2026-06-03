@@ -85,12 +85,6 @@ jobs:
             arch: arm64
             binary-name: hoolix-linux-arm64
             ext: ''
-          # macOS Intel
-          - runner: macos-13
-            os: darwin
-            arch: x64
-            binary-name: hoolix-darwin-x64
-            ext: ''
           # macOS Apple Silicon
           - runner: macos-14
             os: darwin
