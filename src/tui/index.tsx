@@ -76,6 +76,12 @@ function renderUI(state: State) {
   console.log(chalk.dim('Tip: Full keyboard in supported terminals. Use CLI commands for maximum power and scripting.'));
 }
 
+function maskSecret(value: string, visible = 6): string {
+  if (!value) return '';
+  if (value.length <= visible * 2) return `${value.slice(0, 2)}...`;
+  return `${value.slice(0, visible)}...${value.slice(-visible)}`;
+}
+
 async function copyToClipboard(text: string): Promise<boolean> {
   try {
     const { execSync } = await import('node:child_process');
@@ -220,10 +226,19 @@ export async function launchTUI(): Promise<void> {
           },
         };
         const json = JSON.stringify(payload, null, 2);
-        state.actionStatus = `MCP config for ${slug}:\n${json}`;
+        const maskedPayload = {
+          mcpServers: {
+            [slug]: {
+              type: 'streamable-http',
+              url: `http://127.0.0.1:${p}/mcp`,
+              headers: { Authorization: `Bearer ${maskSecret(meta.authKey)}` },
+            },
+          },
+        };
+        state.actionStatus = `MCP config for ${slug}:\n${JSON.stringify(maskedPayload, null, 2)}`;
         const copied = await copyToClipboard(json);
         if (copied) {
-          state.actionStatus += '\n(copied to clipboard)';
+          state.actionStatus += '\n(copied full token config to clipboard)';
         }
       }
     } catch (e: any) {

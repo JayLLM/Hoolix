@@ -16,12 +16,12 @@ The CLI is a hand-rolled dispatcher (no oclif) in `src/index.ts`. Every command 
 ## create
 
 ```bash
-hoolix create [name] [--url <url>] [--yes]
+hoolix create [name] [--url <url>] [--yes] [--json]
 ```
 
 Interactive prompts for name and URL when omitted. Uses `slugify`, `ingestDocumentation({maxPages:80, maxChunks:6000})`, builds Fuse index, then `registerServer`.
 
-On success prints slug, chunk count, and "from N page(s)" or "from llms-full.txt (concatenated documentation)".
+On success prints slug, chunk count, and "from N page(s)" or "from llms-full.txt (concatenated documentation)". With `--json`, emits a single machine-readable object and requires `--yes` so scripts never hang on confirmation.
 
 Errors: `ServerAlreadyExistsError` is turned into a friendly message.
 
@@ -36,10 +36,10 @@ Prints table (or JSON array) of all servers from registry. After table, performs
 ## start
 
 ```bash
-hoolix start <slug> [--port <n>]
+hoolix start <slug> [--port <n>] [--json]
 ```
 
-Loads metadata + authKey, calls `serverManager.start`, prints ready banner + exact `mcpServers` JSON block for clients + curl examples + verify hint.
+Loads metadata + authKey, calls `serverManager.start`, prints ready banner + exact `mcpServers` JSON block for clients + curl examples + verify hint. With `--json`, emits the usable client config and skips background update-check chatter.
 
 On spawn failure (common in raw dev), prints manual `npx tsx ...` command.
 
@@ -62,10 +62,10 @@ Intended as the primary self-service quality check before wiring a client.
 ## reindex
 
 ```bash
-hoolix reindex <slug> [--yes]
+hoolix reindex <slug> [--yes] [--json]
 ```
 
-Requires `sourceUrl` in metadata. Re-runs `ingestDocumentation` from that URL (same options as create), rebuilds RAG, updates `chunkCount` + `sourceType`. Auth key and timestamps preserved. Reports pagesInfo the same way create does.
+Requires `sourceUrl` in metadata. Re-runs `ingestDocumentation` from that URL (same options as create), rebuilds RAG, updates `chunkCount` + `sourceType`. Auth key and timestamps preserved. Reports pagesInfo the same way create does. With `--json`, requires `--yes` and emits one result object.
 
 ## connect
 
@@ -82,10 +82,10 @@ Generic: just emits the JSON block.
 ## rotate
 
 ```bash
-hoolix rotate <slug> [--yes]
+hoolix rotate <slug> [--yes] [--json]
 ```
 
-Generates a fresh `mcp_` key, updates metadata. Prints old (invalid) vs new key. Warns that any running instance must be stopped + restarted. Prints next commands.
+Generates a fresh `mcp_` key, updates metadata. Prints the new key explicitly, masks the old key, and warns that any running instance must be stopped + restarted. With `--json`, requires `--yes` and emits the new key plus next commands.
 
 ## audit
 
@@ -104,14 +104,15 @@ This is the foundation for security review, abuse detection, and hosted usage ac
 
 ## Other Commands / Global Behavior
 
-- `info <slug> [--json]` — full metadata + live status from `serverManager.getStatus` + validation warnings + reindex hint. Shows the actual `embeddingModel` (e.g. `hybrid-bge-base` or `fuse`).
-- `stop <slug>` — `serverManager.stop` (tree-kill)
-- `delete <slug>` — removes from registry index and (by default) the entire on-disk server dir
-- `update` — runs `performUpdate` (only works for compiled binaries)
+- `info <slug> [--json]` — metadata + live status from `serverManager.getStatus` + validation warnings + reindex hint. Shows the actual `embeddingModel` (e.g. `hybrid-bge-base` or `fuse`) and masks auth keys.
+- `stop <slug> [--json]` — `serverManager.stop` (tree-kill)
+- `delete <slug> [--yes] [--json]` — removes from registry index and (by default) the entire on-disk server dir
+- `update [--json]` — runs `performUpdate` (only works for compiled binaries)
+- `uninstall [--yes] [--json]` — removes data and, for compiled installs, prepares/removes the binary.
 - Default / no arg / `tui` / `dashboard` — launches the interactive pure-Node TUI (list + live status + keyboard actions for start/stop/verify/connect/info/reindex + log tail). Requires TTY; graceful text fallback in CI/pipes. Implemented with dynamic import (no React) so non-TUI commands pay no cost.
 - `doctor` now surfaces connect hints on healthy installs and embedding model info.
 
-Create / reindex accept `--hybrid` or `--embedding-model hybrid-bge-base` (respects config `preferredEmbedding`). This enables the full advanced hybrid feature set (RRF reranking, embed/query caches, multi-model support, eval). `verify --eval` provides built-in relevance/latency/mode-comparison proxy. See the [Advanced Hybrid RAG guide](../guides/advanced-rag). All commands support `--json`.
+Create / reindex accept `--hybrid` or `--embedding-model hybrid-bge-base` (respects config `preferredEmbedding`). This enables the full advanced hybrid feature set (RRF reranking, embed/query caches, multi-model support, eval). `verify --eval` provides built-in relevance/latency/mode-comparison proxy. See the [Advanced Hybrid RAG guide](../guides/advanced-rag). Lifecycle and machine-consumable commands support `--json`.
 
 ## See Also
 

@@ -25,10 +25,10 @@
 - **Host logic** (`src/mcp/host.ts`): Fully functional. Real tools (`search_documentation`, `read_documentation_page`, `get_table_of_contents`), Hono + official SDK Streamable HTTP, proper auth middleware, graceful shutdown.
 - **RAG**: Fuse.js + rich per-chunk JSON (zero native deps). Excellent for bundling. `llms-full.txt` and multi-page manifest support produce high-quality indexes with source URLs.
 - **Ingestion**: First-class `llms.txt` / `llms-full.txt` + multi-page crawling, heading-aware chunking, HTML→MD, progress reporting.
-- **Optional conditional deps** (v0.0.2+): `ink` + `react` (TUI dashboard, dynamic import + TTY guard — only loaded for default/no-arg or `tui` command), `@huggingface/transformers` (hybrid BGE RAG, dynamic + per-server flag — only on --hybrid paths). Base experience and most commands remain zero-heavy-dep. Binary grows modestly; hybrid adds first-use model download to HF cache. Documented in FAQ + AGENTS.md binary discipline. Old LanceDB etc. still fully removed from hot paths.
+- **Optional conditional deps** (v0.0.2+): `@huggingface/transformers` (hybrid BGE RAG, dynamic + per-server flag — only on --hybrid paths). The TUI is currently pure Node and dynamically imported on the TUI path, so it does not require Ink/React. Base experience and most commands remain zero-heavy-dep. Hybrid adds first-use model download to HF cache. Documented in FAQ + AGENTS.md binary discipline. Old LanceDB etc. still fully removed from hot paths.
 - **Data**: `env-paths` for cross-platform `~/.hoolix` (or Windows equivalent). Clean Zod-validated registry + per-server data.
 - **Distribution**: `install.sh` / `install.ps1` + GitHub Actions matrix (5+ platforms) + `--minify` binaries + `doctor` for post-install verification. All working.
-  - `cmdStart` in `src/index.ts` still prints manual `npx tsx ...` instructions (does **not** call `serverManager.start` yet).
+  - `cmdStart` in `src/index.ts` calls `serverManager.start`; manual `npx tsx ...` output is only a fallback when spawn fails in development.
   - No handling for `__internal-host` dispatch in `main()` / CLI entry (required so spawned binary processes run the host server logic).
   - No build scripts for `bun build --compile`.
   - No install scripts, no .github/workflows for binaries, no `doctor`.

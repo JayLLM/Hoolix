@@ -133,7 +133,7 @@ if ($Help) {
 try {
     Write-Banner
 
-    $arch = if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq "Arm64") {
+    $detectedArch = if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq "Arm64") {
         "arm64"
     } elseif ([System.Environment]::Is64BitOperatingSystem) {
         "x64"
@@ -141,12 +141,18 @@ try {
         "x86"
     }
 
-    if ($arch -eq "x86") {
+    if ($detectedArch -eq "x86") {
         throw "32-bit Windows is not supported."
     }
 
+    $arch = $detectedArch
+    if ($detectedArch -eq "arm64") {
+        Write-Warn "Windows ARM64 release assets are not published yet; installing the Windows x64 binary under emulation."
+        $arch = "x64"
+    }
+
     $assetName = "$BinaryName-windows-$arch.exe"
-    Write-Step "Detected windows-$arch ($assetName)"
+    Write-Step "Detected windows-$detectedArch; using $assetName"
 
     $release = Get-Release -RequestedVersion $Version -StableOnly ([bool]$Stable)
     $asset = Get-Asset -Release $release -AssetName $assetName

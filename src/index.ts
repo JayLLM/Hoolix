@@ -103,6 +103,16 @@ function truncate(value: string, max = 54): string {
   return value.length > max ? `${value.slice(0, max - 1)}…` : value;
 }
 
+function maskSecret(value: string, visible = 6): string {
+  if (!value) return '';
+  if (value.length <= visible * 2) return `${value.slice(0, 2)}...`;
+  return `${value.slice(0, visible)}...${value.slice(-visible)}`;
+}
+
+function printJson(value: unknown): void {
+  console.log(JSON.stringify(value, null, 2));
+}
+
 function formatDate(value: string): string {
   return new Date(value).toLocaleDateString(undefined, {
     year: 'numeric',
@@ -254,7 +264,7 @@ async function main() {
   await loadConfig();
 
   // Background update check (non-blocking, best-effort)
-  if (cmd !== 'update' && cmd !== '__internal-host' && process.env.MCP_PORTAL_SKIP_UPDATE_CHECK !== '1') {
+  if (!jsonOutput && cmd !== 'update' && cmd !== '__internal-host' && process.env.MCP_PORTAL_SKIP_UPDATE_CHECK !== '1') {
     checkForUpdate().then((info) => {
       if (info.isOutdated) {
         logger.warn(
@@ -283,15 +293,15 @@ async function main() {
       return;
 
     case 'create':
-      await cmdCreate(args);
+      await cmdCreate(args, jsonOutput);
       return;
 
     case 'delete':
-      await cmdDelete(args);
+      await cmdDelete(args, jsonOutput);
       return;
 
     case 'reindex':
-      await cmdReindex(args);
+      await cmdReindex(args, jsonOutput);
       return;
 
     case 'verify':
@@ -308,7 +318,7 @@ async function main() {
 
     case 'rotate':
     case 'rotate-key':
-      await cmdRotateKey(args);
+      await cmdRotateKey(args, jsonOutput);
       return;
 
     case 'audit':
@@ -317,19 +327,19 @@ async function main() {
       return;
 
     case 'start':
-      await cmdStart(args);
+      await cmdStart(args, jsonOutput);
       return;
 
     case 'stop':
-      await cmdStop(args);
+      await cmdStop(args, jsonOutput);
       return;
 
     case 'update':
-      await cmdUpdate();
+      await cmdUpdate(jsonOutput);
       return;
 
     case 'uninstall':
-      await cmdUninstall(args);
+      await cmdUninstall(args, jsonOutput);
       return;
 
     case 'doctor':
@@ -350,9 +360,9 @@ async function main() {
     case 'dashboard':
     default:
       // Extra guard: probe raw mode support before even importing the TUI.
-      // This prevents Ink's internal React/ref setup from running in environments
+      // This prevents the raw-mode TUI from running in environments
       // (especially packaged Windows exes in certain terminals) where isTTY is true
-      // but setRawMode will fail or cause "H.ref is not a function" inside ink.
+      // but setRawMode will fail.
       let rawModeProbeOk = true;
       if (process.env.MCP_PORTAL_TUI_TEST_MODE === '1') {
         rawModeProbeOk = true;
@@ -428,8 +438,8 @@ async function cmdList(json: boolean) {
   }
 }
 
-async function cmdCreate(args: string[]) {
-  intro(chalk.bold('hoolix create'));
+async function cmdCreate(args: string[], json: boolean) {
+  if (!json) intro(chalk.bold('hoolix create'));
 
   let name = args[1];
   let url = '';
@@ -441,6 +451,10 @@ async function cmdCreate(args: string[]) {
   }
 
   if (!name) {
+    if (json) {
+      printJson({ ok: false, error: 'Missing server name. Next: pass hoolix create <name> --url <url> --yes --json.' });
+      process.exit(1);
+    }
     const nameInput = await text({
       message: 'Server name (human readable)',
       placeholder: 'My Company Docs',
@@ -454,6 +468,10 @@ async function cmdCreate(args: string[]) {
   }
 
   if (!url) {
+    if (json) {
+      printJson({ ok: false, error: 'Missing --url. Next: pass hoolix create <name> --url <url> --yes --json.' });
+      process.exit(1);
+    }
     const urlInput = await text({
       message: 'Documentation URL (llms.txt, docs site, or GitHub)',
       placeholder: 'https://docs.example.com/llms.txt',
@@ -478,6 +496,10 @@ async function cmdCreate(args: string[]) {
 
   const force = args.includes('--yes') || args.includes('-y');
   let confirmed: boolean | symbol = force;
+  if (json && !force) {
+    printJson({ ok: false, error: 'Creation requires confirmation. Next: pass --yes with --json.' });
+    process.exit(1);
+  }
   if (!force) {
     confirmed = await confirm({
       message: `Create server "${name}" (${slug}) from ${url}?`,
@@ -488,8 +510,8 @@ async function cmdCreate(args: string[]) {
     process.exit(0);
   }
 
-  const s = spinner();
-  s.start('Ingesting documentation... (10–120s for multi-page llms.txt sites)');
+  const s = json ? null : spinner();
+  s?.start('Ingesting documentation... (10–120s for multi-page llms.txt sites)');
 
   try {
     const result = await ingestDocumentation(url, {
@@ -500,16 +522,16 @@ async function cmdCreate(args: string[]) {
         if (p.message) {
           const suffix =
             p.current != null && p.total != null ? ` (${p.current}/${p.total})` : '';
-          s.message(`${p.message}${suffix}`);
+          s?.message(`${p.message}${suffix}`);
         }
       },
     });
 
-    s.stop(`Ingestion complete: ${result.stats.totalChunks} chunks, ${(result.stats.totalChars / 1000).toFixed(1)}k chars`);
+    s?.stop(`Ingestion complete: ${result.stats.totalChunks} chunks, ${(result.stats.totalChars / 1000).toFixed(1)}k chars`);
 
     // Build search index (Fuse default; optional hybrid BGE-small when --hybrid or config preferredEmbedding=hybrid-bge-small).
-    const ragSpinner = spinner();
-    ragSpinner.start('Building search index...');
+    const ragSpinner = json ? null : spinner();
+    ragSpinner?.start('Building search index...');
 
     const cfg = await loadConfig();
     // Resolve embedding: --embedding-model <name> takes precedence, then --hybrid (maps to bge-small), then config, else fuse.
@@ -528,14 +550,14 @@ async function cmdCreate(args: string[]) {
     try {
       const rag = await createRAGForServer(slug, embeddingModel);
       await rag.indexChunks(result.chunks, { embeddingModel, onProgress: (p) => {
-        if (p.stage === 'embed' && p.message) ragSpinner.message(p.message);
+        if (p.stage === 'embed' && p.message) ragSpinner?.message(p.message);
       } });
       await rag.close?.();
       const idxLabel = isHybridModel(embeddingModel) ? `Hybrid (${embeddingModel})` : 'Fuse.js';
-      ragSpinner.stop(`Search index built (${idxLabel})`);
+      ragSpinner?.stop(`Search index built (${idxLabel})`);
     } catch (ragErr: any) {
-      ragSpinner.stop('Search index step had issues (server registered; you can reindex later)');
-      logger.warn('RAG indexing error:', ragErr.message || ragErr);
+      ragSpinner?.stop('Search index step had issues (server registered; you can reindex later)');
+      if (!json) logger.warn('RAG indexing error:', ragErr.message || ragErr);
       // Register even if RAG step had issues (user can reindex later)
     }
 
@@ -555,20 +577,43 @@ async function cmdCreate(args: string[]) {
     const pagesInfo = result.sourceUrl.includes('llms-full.txt')
       ? 'llms-full.txt (concatenated documentation)'
       : `${result.stats.pagesProcessed} page(s)`;
-    outro(`${ui.success('✓')} Server "${name}" created successfully`);
-    printTitle('Ready', 'Your authenticated MCP server is registered.');
-    printDetails([
-      ['Slug', meta.slug],
-      ['Chunks', `${meta.chunkCount.toLocaleString()} from ${pagesInfo}`],
-      ['Source', truncate(result.sourceUrl, 92)],
-    ]);
-    console.log('');
-    printSection('Next');
-    printCommand(`hoolix start ${meta.slug}`);
-    console.log('');
+    if (json) {
+      printJson({
+        ok: true,
+        slug: meta.slug,
+        name: meta.name,
+        sourceUrl: meta.sourceUrl,
+        sourceType: meta.sourceType,
+        chunkCount: meta.chunkCount,
+        pagesProcessed: result.stats.pagesProcessed,
+        embeddingModel: meta.embeddingModel,
+        vectorIndexed: meta.vectorIndexed,
+        next: [`hoolix start ${meta.slug}`, `hoolix verify ${meta.slug} --json`],
+      });
+    } else {
+      outro(`${ui.success('✓')} Server "${name}" created successfully`);
+      printTitle('Ready', 'Your authenticated MCP server is registered.');
+      printDetails([
+        ['Slug', meta.slug],
+        ['Chunks', `${meta.chunkCount.toLocaleString()} from ${pagesInfo}`],
+        ['Source', truncate(result.sourceUrl, 92)],
+      ]);
+      console.log('');
+      printSection('Next');
+      printCommand(`hoolix start ${meta.slug}`);
+      console.log('');
+    }
   } catch (err: any) {
-    s.stop('Ingestion failed');
-    if (err instanceof ServerAlreadyExistsError) {
+    s?.stop('Ingestion failed');
+    if (json) {
+      printJson({
+        ok: false,
+        error: err instanceof ServerAlreadyExistsError
+          ? `A server with slug "${slug}" already exists.`
+          : (err.message || String(err)),
+        next: err instanceof ServerAlreadyExistsError ? `hoolix delete ${slug} --yes` : 'Check the URL and retry.',
+      });
+    } else if (err instanceof ServerAlreadyExistsError) {
       logger.error(`A server with slug "${slug}" already exists.`);
     } else {
       logger.error('Failed to create server:', err.message || err);
@@ -577,20 +622,26 @@ async function cmdCreate(args: string[]) {
   }
 }
 
-async function cmdDelete(args: string[]) {
+async function cmdDelete(args: string[], json: boolean) {
   const slug = args[1];
   if (!slug) {
-    logger.error('Usage: hoolix delete <slug>');
+    if (json) printJson({ ok: false, error: 'Missing slug. Next: pass hoolix delete <slug> --yes --json.' });
+    else logger.error('Usage: hoolix delete <slug>');
     process.exit(1);
   }
 
   const meta = await getServerMetadata(slug).catch(() => null);
   if (!meta) {
-    logger.error(`Server "${slug}" not found.`);
+    if (json) printJson({ ok: false, slug, error: `Server "${slug}" not found.` });
+    else logger.error(`Server "${slug}" not found.`);
     process.exit(1);
   }
 
   const force = args.includes('--yes') || args.includes('-y');
+  if (json && !force) {
+    printJson({ ok: false, slug, error: 'Delete requires confirmation. Next: pass --yes with --json.' });
+    process.exit(1);
+  }
   let confirmed: boolean | symbol = force;
   if (!force) {
     confirmed = await confirm({
@@ -603,13 +654,15 @@ async function cmdDelete(args: string[]) {
   }
 
   await deleteServer(slug);
-  logger.success(`Deleted ${slug}`);
+  if (json) printJson({ ok: true, slug, deleted: true });
+  else logger.success(`Deleted ${slug}`);
 }
 
-async function cmdReindex(args: string[]) {
+async function cmdReindex(args: string[], json: boolean) {
   const slug = args[1];
   if (!slug) {
-    logger.error('Usage: hoolix reindex <slug> [--yes]');
+    if (json) printJson({ ok: false, error: 'Missing slug. Next: pass hoolix reindex <slug> --yes --json.' });
+    else logger.error('Usage: hoolix reindex <slug> [--yes] [--json]');
     process.exit(1);
   }
 
@@ -617,16 +670,22 @@ async function cmdReindex(args: string[]) {
   try {
     meta = await getServerMetadata(slug);
   } catch {
-    logger.error(`Server "${slug}" not found.`);
+    if (json) printJson({ ok: false, slug, error: `Server "${slug}" not found.` });
+    else logger.error(`Server "${slug}" not found.`);
     process.exit(1);
   }
 
   if (!meta.sourceUrl) {
-    logger.error('This server has no recorded sourceUrl and cannot be reindexed.');
+    if (json) printJson({ ok: false, slug, error: 'This server has no recorded sourceUrl and cannot be reindexed.' });
+    else logger.error('This server has no recorded sourceUrl and cannot be reindexed.');
     process.exit(1);
   }
 
   const force = args.includes('--yes') || args.includes('-y');
+  if (json && !force) {
+    printJson({ ok: false, slug, error: 'Reindex requires confirmation. Next: pass --yes with --json.' });
+    process.exit(1);
+  }
   let confirmed: boolean | symbol = force;
   if (!force) {
     confirmed = await confirm({
@@ -638,8 +697,8 @@ async function cmdReindex(args: string[]) {
     return;
   }
 
-  const s = spinner();
-  s.start('Re-ingesting documentation...');
+  const s = json ? null : spinner();
+  s?.start('Re-ingesting documentation...');
 
   try {
     const result = await ingestDocumentation(meta.sourceUrl, {
@@ -648,7 +707,7 @@ async function cmdReindex(args: string[]) {
       onProgress: (p) => {
         if (p.message) {
           const suffix = p.current != null && p.total != null ? ` (${p.current}/${p.total})` : '';
-          s.message(`${p.message}${suffix}`);
+          s?.message(`${p.message}${suffix}`);
         }
       },
     });
@@ -657,7 +716,7 @@ async function cmdReindex(args: string[]) {
     const pagesInfo = isLlmsFull
       ? 'llms-full.txt (concatenated documentation)'
       : `${result.stats.pagesProcessed} page(s)`;
-    s.stop(`Re-ingestion complete: ${result.stats.totalChunks} chunks from ${pagesInfo}`);
+    s?.stop(`Re-ingestion complete: ${result.stats.totalChunks} chunks from ${pagesInfo}`);
 
     const cfg2 = await loadConfig();
     let embeddingModel2: EmbeddingModel = 'fuse';
@@ -671,19 +730,19 @@ async function cmdReindex(args: string[]) {
       embeddingModel2 = cfg2.preferredEmbedding as EmbeddingModel;
     }
 
-    const ragSpinner = spinner();
-    ragSpinner.start('Rebuilding search index...');
+    const ragSpinner = json ? null : spinner();
+    ragSpinner?.start('Rebuilding search index...');
     try {
       const rag = await createRAGForServer(slug, embeddingModel2);
       await rag.indexChunks(result.chunks, { embeddingModel: embeddingModel2, onProgress: (p) => {
-        if (p.stage === 'embed' && p.message) ragSpinner.message(p.message);
+        if (p.stage === 'embed' && p.message) ragSpinner?.message(p.message);
       } });
       await rag.close?.();
       const idxLabel = isHybridModel(embeddingModel2) ? `Hybrid (${embeddingModel2})` : 'Fuse.js';
-      ragSpinner.stop(`Search index rebuilt (${idxLabel})`);
+      ragSpinner?.stop(`Search index rebuilt (${idxLabel})`);
     } catch (e: any) {
-      ragSpinner.stop('Index rebuild encountered issues');
-      logger.warn('RAG reindex error:', e?.message || e);
+      ragSpinner?.stop('Index rebuild encountered issues');
+      if (!json) logger.warn('RAG reindex error:', e?.message || e);
     }
 
     await updateServerMetadata(slug, {
@@ -697,15 +756,29 @@ async function cmdReindex(args: string[]) {
     const pagesInfo2 = isLlmsFull2
       ? 'llms-full.txt (concatenated documentation)'
       : `${result.stats.pagesProcessed} page(s)`;
-    printTitle('Reindexed', `"${slug}" is fresh and searchable.`);
-    printDetails([
-      ['Chunks', `${result.stats.totalChunks.toLocaleString()} from ${pagesInfo2}`],
-      ['Index', 'Fuse.js JSON'],
-    ]);
-    console.log('');
+    if (json) {
+      printJson({
+        ok: true,
+        slug,
+        sourceUrl: result.sourceUrl,
+        sourceType: result.sourceType,
+        chunkCount: result.stats.totalChunks,
+        pagesProcessed: result.stats.pagesProcessed,
+        embeddingModel: embeddingModel2,
+        vectorIndexed: isHybridModel(embeddingModel2),
+      });
+    } else {
+      printTitle('Reindexed', `"${slug}" is fresh and searchable.`);
+      printDetails([
+        ['Chunks', `${result.stats.totalChunks.toLocaleString()} from ${pagesInfo2}`],
+        ['Index', isHybridModel(embeddingModel2) ? `Hybrid (${embeddingModel2})` : 'Fuse.js JSON'],
+      ]);
+      console.log('');
+    }
   } catch (err: any) {
-    s.stop('Reindex failed');
-    logger.error('Failed to reindex:', err.message || err);
+    s?.stop('Reindex failed');
+    if (json) printJson({ ok: false, slug, error: err.message || String(err), next: 'Check the source URL and retry.' });
+    else logger.error('Failed to reindex:', err.message || err);
     process.exit(1);
   }
 }
@@ -915,6 +988,7 @@ async function cmdInfo(args: string[], json: boolean) {
 
   const full = {
     ...meta,
+    authKey: maskSecret(meta.authKey),
     running: status.running,
     port: status.port,
     pid: status.pid,
@@ -935,7 +1009,7 @@ async function cmdInfo(args: string[], json: boolean) {
     ['Created', new Date(meta.createdAt).toLocaleString()],
   ]);
   if (status.running) {
-    printDetails([['Auth', `Authorization: Bearer ${meta.authKey}`]]);
+    printDetails([['Auth', `Authorization: Bearer ${maskSecret(meta.authKey)}`]]);
   }
   console.log('');
 
@@ -960,10 +1034,11 @@ export function generateAuthKey(): string {
   return 'mcp_' + randomBytes(24).toString('hex');
 }
 
-async function cmdStart(args: string[]) {
+async function cmdStart(args: string[], json: boolean) {
   const slug = args[1];
   if (!slug) {
-    logger.error('Usage: hoolix start <slug> [--port <n>]');
+    if (json) printJson({ ok: false, error: 'Missing slug. Next: pass hoolix start <slug> [--port <n>] --json.' });
+    else logger.error('Usage: hoolix start <slug> [--port <n>] [--json]');
     process.exit(1);
   }
 
@@ -971,11 +1046,31 @@ async function cmdStart(args: string[]) {
   const port = parseInt(args[args.indexOf('--port') + 1] || '0', 10) || (3456 + Math.floor(Math.random() * 400));
   const authKey = meta.authKey;
 
-  printTitle('Starting', `Preparing "${meta.name}"`);
+  if (!json) printTitle('Starting', `Preparing "${meta.name}"`);
 
   try {
     // Uses ServerManager logic: compiled binary spawns self (__internal-host); dev uses tsx/.bin path.
     const { port: actualPort, pid } = await serverManager.start(slug, { port, authKey });
+
+    if (json) {
+      printJson({
+        ok: true,
+        slug,
+        name: meta.name,
+        url: `http://127.0.0.1:${actualPort}/mcp`,
+        port: actualPort,
+        pid,
+        mcpServers: {
+          [slug]: {
+            type: 'streamable-http',
+            url: `http://127.0.0.1:${actualPort}/mcp`,
+            headers: { Authorization: `Bearer ${authKey}` },
+          },
+        },
+        next: [`hoolix connect ${slug} --client cursor --yes`, `hoolix verify ${slug} --json`],
+      });
+      return;
+    }
 
     printTitle('Running', `"${meta.name}" is ready for MCP clients.`);
     printDetails([
@@ -1004,6 +1099,15 @@ async function cmdStart(args: string[]) {
     console.log('');
     console.log(`  ${ui.muted('Tip:')} hoolix connect ${slug} --client cursor   (or claude|windsurf|continue|cline|grokbuild|generic; use --project for workspace)`);
   } catch (err: any) {
+    if (json) {
+      printJson({
+        ok: false,
+        slug,
+        error: err.message || String(err),
+        next: `Run hoolix doctor --json, then retry hoolix start ${slug} --json.`,
+      });
+      process.exit(1);
+    }
     // Spawn failed (common in dev); fall back to manual instructions for user.
     logger.warn('Could not automatically start the host process:', err.message);
 
@@ -1016,26 +1120,30 @@ async function cmdStart(args: string[]) {
   }
 }
 
-async function cmdStop(args: string[]) {
+async function cmdStop(args: string[], json: boolean) {
   const slug = args[1];
   if (!slug) {
-    logger.error('Usage: hoolix stop <slug>');
+    if (json) printJson({ ok: false, error: 'Missing slug. Next: pass hoolix stop <slug> --json.' });
+    else logger.error('Usage: hoolix stop <slug> [--json]');
     process.exit(1);
   }
   const stopped = await serverManager.stop(slug);
-  if (stopped) {
+  if (json) {
+    printJson({ ok: true, slug, stopped });
+  } else if (stopped) {
     logger.success(`Stopped ${slug}`);
   } else {
     logger.info(`${slug} was not running.`);
   }
 }
 
-async function cmdUpdate() {
-  logger.info('Checking for updates...');
+async function cmdUpdate(json: boolean) {
+  if (!json) logger.info('Checking for updates...');
 
   const updateInfo = await checkForUpdate();
   if (!updateInfo.isOutdated) {
-    logger.success(`You are already on the latest version (${updateInfo.currentVersion}).`);
+    if (json) printJson({ ok: true, updated: false, ...updateInfo });
+    else logger.success(`You are already on the latest version (${updateInfo.currentVersion}).`);
     return;
   }
 
@@ -1056,36 +1164,49 @@ async function cmdUpdate() {
   }
 
   if (restartSlugs.length > 0) {
-    logger.info(`Stopping ${restartSlugs.length} running server(s) before update: ${restartSlugs.join(', ')}`);
+    if (!json) logger.info(`Stopping ${restartSlugs.length} running server(s) before update: ${restartSlugs.join(', ')}`);
     for (const slug of restartSlugs) {
       try {
         await serverManager.stop(slug, true);
-        logger.info(`Stopped ${slug}`);
+        if (!json) logger.info(`Stopped ${slug}`);
       } catch (e: any) {
-        logger.warn(`Failed to stop ${slug} before update: ${e.message || e}`);
+        if (!json) logger.warn(`Failed to stop ${slug} before update: ${e.message || e}`);
       }
     }
   }
 
   try {
-    const success = await performUpdate(restartSlugs);
+    const success = await performUpdate(restartSlugs, { quiet: json });
     if (success) {
-      logger.success('Update completed successfully!');
+      if (json) printJson({ ok: true, updated: true, ...updateInfo, restarted: restartSlugs });
+      else logger.success('Update completed successfully!');
       // Non-Windows: restart here. (Windows update path uses a .bat that handles restarts and exits this process.)
       if (restartSlugs.length > 0 && process.platform !== 'win32') {
-        logger.info('Restarting previously running servers...');
+        if (!json) logger.info('Restarting previously running servers...');
         for (const slug of restartSlugs) {
           try {
             await serverManager.start(slug);
-            logger.info(`Restarted ${slug}`);
+            if (!json) logger.info(`Restarted ${slug}`);
           } catch (e: any) {
-            logger.warn(`Failed to restart ${slug} after update: ${e.message || e}`);
+            if (!json) logger.warn(`Failed to restart ${slug} after update: ${e.message || e}`);
           }
         }
       }
+    } else if (json) {
+      printJson({
+        ok: false,
+        updated: false,
+        ...updateInfo,
+        restarted: restartSlugs,
+        error: updateInfo.assetName
+          ? 'Auto-update could not be applied. Next: download the release asset manually or run from a compiled binary.'
+          : 'No suitable binary asset was found for this platform in the latest release.',
+      });
+      process.exit(1);
     }
   } catch (err: any) {
-    logger.error('Update failed:', err.message || err);
+    if (json) printJson({ ok: false, updated: false, error: err.message || String(err), restarted: restartSlugs });
+    else logger.error('Update failed:', err.message || err);
     // Best effort: restart servers even if update failed, so user isn't left with stopped services.
     if (restartSlugs.length > 0) {
       logger.info('Attempting to restart servers after failed update...');
@@ -1099,8 +1220,13 @@ async function cmdUpdate() {
   }
 }
 
-async function cmdUninstall(args: string[]) {
+async function cmdUninstall(args: string[], json: boolean) {
   const force = args.includes('--yes') || args.includes('-y');
+
+  if (json && !force) {
+    printJson({ ok: false, error: 'Uninstall requires confirmation. Next: pass --yes with --json.' });
+    process.exit(1);
+  }
 
   if (!force) {
     const confirmed = await confirm({
@@ -1112,7 +1238,7 @@ async function cmdUninstall(args: string[]) {
     }
   }
 
-  logger.info('Starting uninstall...');
+  if (!json) logger.info('Starting uninstall...');
 
   // Stop and delete all servers (best effort)
   try {
@@ -1122,16 +1248,16 @@ async function cmdUninstall(args: string[]) {
         const st = await serverManager.getStatus(s.slug);
         if (st.running) {
           await serverManager.stop(s.slug, true);
-          logger.info(`Stopped ${s.slug}`);
+          if (!json) logger.info(`Stopped ${s.slug}`);
         }
       } catch {}
       await deleteServer(s.slug, { removeData: true });
     }
     if (servers.length > 0) {
-      logger.info(`Removed ${servers.length} server(s)`);
+      if (!json) logger.info(`Removed ${servers.length} server(s)`);
     }
   } catch (e: any) {
-    logger.warn('Some servers could not be cleaned:', e.message);
+    if (!json) logger.warn('Some servers could not be cleaned:', e.message);
   }
 
   // Remove the entire data directory (config, registry, all per-server data, cache, etc.)
@@ -1139,10 +1265,10 @@ async function cmdUninstall(args: string[]) {
     const { data: dataDir } = getPaths();
     if (await fs.pathExists(dataDir)) {
       await fs.remove(dataDir);
-      logger.info(`Removed data directory: ${dataDir}`);
+      if (!json) logger.info(`Removed data directory: ${dataDir}`);
     }
   } catch (e: any) {
-    logger.warn('Could not remove data dir:', e.message);
+    if (!json) logger.warn('Could not remove data dir:', e.message);
   }
 
   // Remove the binary (and self) if this is a compiled install
@@ -1160,9 +1286,9 @@ async function cmdUninstall(args: string[]) {
         const escapedDir = installDir.replace(/\\/g, '\\\\');
         const psCmd = `[Environment]::GetEnvironmentVariable('PATH','User') -split ';' | Where-Object { $_.TrimEnd('\\') -ine '${escapedDir}' } | Join-String -Separator ';' | ForEach-Object { [Environment]::SetEnvironmentVariable('PATH', $_, 'User') }`;
         execSync(`powershell -NoProfile -Command "${psCmd}"`, { stdio: 'ignore' });
-        logger.info(`Removed ${installDir} from user PATH.`);
+        if (!json) logger.info(`Removed ${installDir} from user PATH.`);
       } catch (e: any) {
-        logger.warn('Could not automatically remove from PATH (edit manually if needed).');
+        if (!json) logger.warn('Could not automatically remove from PATH (edit manually if needed).');
       }
 
       // Prepare detached batch to delete the exe + dir after we exit (can't delete running exe)
@@ -1187,26 +1313,30 @@ del "%~f0" >nul 2>&1
         windowsHide: true,
       }).unref();
 
-      logger.success('Uninstall prepared.');
-      logger.info('This process will exit now; the binary and install directory will be removed shortly.');
+      if (json) printJson({ ok: true, removedData: true, compiledBinary: true, uninstallPrepared: true, installDir });
+      else {
+        logger.success('Uninstall prepared.');
+        logger.info('This process will exit now; the binary and install directory will be removed shortly.');
+      }
       await new Promise((r) => setTimeout(r, 150));
       process.exit(0);
     } else {
       // Unix/mac: can remove the file directly (not a running image lock issue the same way)
       try {
         await fs.remove(currentExe);
-        logger.info(`Removed binary: ${currentExe}`);
+        if (!json) logger.info(`Removed binary: ${currentExe}`);
         // Do not rmdir installDir (often ~/.local/bin which is shared)
       } catch (e: any) {
-        logger.warn(`Could not remove binary ${currentExe}: ${e.message}`);
+        if (!json) logger.warn(`Could not remove binary ${currentExe}: ${e.message}`);
       }
-      logger.info('If you manually added the install directory to PATH in your shell config (~/.bashrc etc.), remove the entry there.');
+      if (!json) logger.info('If you manually added the install directory to PATH in your shell config (~/.bashrc etc.), remove the entry there.');
     }
   } else {
-    logger.info('Not running as a compiled binary — only data was cleaned. Remove the package/source manually if desired.');
+    if (!json) logger.info('Not running as a compiled binary — only data was cleaned. Remove the package/source manually if desired.');
   }
 
-  logger.success('hoolix has been fully uninstalled and cleaned up.');
+  if (json) printJson({ ok: true, removedData: true, compiledBinary: isCompiledBinary });
+  else logger.success('hoolix has been fully uninstalled and cleaned up.');
 }
 
 async function cmdDoctor(json: boolean) {
@@ -1506,21 +1636,27 @@ async function cmdConnect(args: string[], json: boolean) {
   printCommand(`hoolix connect ${slug} --json`);
 }
 
-async function cmdRotateKey(args: string[]) {
+async function cmdRotateKey(args: string[], json: boolean) {
   const slug = args[1];
   if (!slug) {
-    logger.error('Usage: hoolix rotate <slug> [--yes]');
+    if (json) printJson({ ok: false, error: 'Missing slug. Next: pass hoolix rotate <slug> --yes --json.' });
+    else logger.error('Usage: hoolix rotate <slug> [--yes] [--json]');
     process.exit(1);
   }
   let meta: any;
   try {
     meta = await getServerMetadata(slug);
   } catch {
-    logger.error(`Server "${slug}" not found.`);
+    if (json) printJson({ ok: false, slug, error: `Server "${slug}" not found.` });
+    else logger.error(`Server "${slug}" not found.`);
     process.exit(1);
   }
 
   const force = args.includes('--yes') || args.includes('-y');
+  if (json && !force) {
+    printJson({ ok: false, slug, error: 'Key rotation requires confirmation. Next: pass --yes with --json.' });
+    process.exit(1);
+  }
   let confirmed: boolean | symbol = force;
   if (!force) {
     confirmed = await confirm({ message: `Rotate auth key for "${meta.name}" (${slug})? Existing clients will need the new key.` });
@@ -1535,9 +1671,21 @@ async function cmdRotateKey(args: string[]) {
 
   await updateServerMetadata(slug, { authKey: newKey } as any);
 
+  if (json) {
+    printJson({
+      ok: true,
+      slug,
+      oldKey: maskSecret(oldKey),
+      newKey,
+      restartRequired: true,
+      next: [`hoolix stop ${slug}`, `hoolix start ${slug}`, `hoolix connect ${slug} --client cursor --yes`],
+    });
+    return;
+  }
+
   printTitle('Key rotated', slug);
   printDetails([
-    ['Old key (no longer valid)', truncate(oldKey, 40) + '…'],
+    ['Old key (no longer valid)', maskSecret(oldKey)],
     ['New key', newKey],
   ]);
   console.log('');
@@ -1683,25 +1831,26 @@ ${chalk.bold('Usage')}
   hoolix [command] [options]
 
 ${chalk.bold('Commands')}
-  ${ui.accent('create')} [name]        Create server from docs URL (real ingestion + RAG; --hybrid or --embedding-model hybrid-bge-base)
-  ${ui.accent('list')}                 List registered servers
-  ${ui.accent('start')} <slug>         Start the MCP server (Streamable HTTP)
-  ${ui.accent('stop')} <slug>          Stop a running server
-  ${ui.accent('info')} <slug>          Show details and connection info
+  ${ui.accent('create')} [name]        Create server from docs URL (real ingestion + RAG; --yes, --json, --hybrid, --embedding-model)
+  ${ui.accent('list')}                 List registered servers (--json)
+  ${ui.accent('start')} <slug>         Start the MCP server (Streamable HTTP; --port, --json)
+  ${ui.accent('stop')} <slug>          Stop a running server (--json)
+  ${ui.accent('info')} <slug>          Show details and masked status info (--json)
   ${ui.accent('connect')} <slug>      Wire server into client (auto-merge + backup for claude/cursor/etc; --client, --project, --json)
   ${ui.accent('rotate')} <slug>       Rotate the Bearer auth key for a server (clients must be updated)
   ${ui.accent('audit')} <slug>        Query audit log (tool calls, rate limits, searches) with filters (--json, --limit, --tool, --since)
-  ${ui.accent('delete')} <slug>        Remove server and data
-  ${ui.accent('reindex')} <slug>       Re-fetch source and rebuild the RAG index (--hybrid / --embedding-model for advanced hybrid + cache)
+  ${ui.accent('delete')} <slug>        Remove server and data (--yes, --json)
+  ${ui.accent('reindex')} <slug>       Re-fetch source and rebuild the RAG index (--yes, --json, --hybrid, --embedding-model)
   ${ui.accent('verify')} <slug>        Check RAG health, samples, grounding + optional --eval / --json
   ${ui.accent('gui')}                  Launch web GUI / dashboard in browser (port 8080, token auth, create/manage/playground)
   ${ui.accent('doctor')} [--json]      Diagnose installation, paths, config, and runtime
-  ${ui.accent('update')}               Check for and install the latest version
-  ${ui.accent('uninstall')} [--yes]    Completely remove hoolix, all servers/data, the binary itself, and PATH entries (Windows)
+  ${ui.accent('update')}               Check for and install the latest version (--json)
+  ${ui.accent('uninstall')} [--yes]    Completely remove hoolix, all servers/data, the binary itself, and PATH entries (Windows; --json)
   ${ui.accent('version')}              Print the current version
 
 ${chalk.bold('Examples')}
   ${ui.accent('›')} hoolix create "My Docs" --url https://example.com/llms.txt --yes
+  ${ui.accent('›')} hoolix create "My Docs" --url https://example.com/llms.txt --yes --json
   ${ui.accent('›')} hoolix verify my-docs
   ${ui.accent('›')} hoolix start my-docs
   ${ui.accent('›')} hoolix connect my-docs --client cursor
@@ -1714,7 +1863,7 @@ ${chalk.bold('Examples')}
 ${chalk.bold('Status')}
   ${ui.success('✓')} llms.txt-first + GitHub-aware ingestion with heading-aware chunking + full GITHUB_TOKEN for private repos (raw + tree)
   ${ui.success('✓')} Fuse.js (default) + optional hybrid BGE-small RAG; every result includes Source URLs
-  ${ui.success('✓')} Hono + official MCP Streamable HTTP + per-server auth + advanced rate limiting (configurable + Retry-After) + queryable rotated audit.log
+  ${ui.success('✓')} Hono + official MCP Streamable HTTP + per-server auth + tool timeouts + advanced rate limiting (configurable + Retry-After) + queryable rotated audit.log
   ${ui.success('✓')} Self-contained binaries + interactive pure-Node TUI (default when no command) + web GUI ('hoolix gui')
   ${ui.success('✓')} connect + rotate + audit + browser dashboard for production client wiring, security, and visual management
 `);

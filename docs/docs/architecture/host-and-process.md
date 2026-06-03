@@ -35,6 +35,7 @@ This is the most critical architectural boundary in the project (see AGENTS.md "
 
 - Loads RAG first
 - Registers the three tools (with `as any` casts required by current SDK version)
+- Wraps each tool with a timeout guard (`MCP_TOOL_TIMEOUT_MS`, default 15000ms), response caps, and audit entries for calls/errors
 - Hono app:
   - `GET /health` (public, reports chunks status)
   - `use('/mcp', authMw)` — Bearer or X-MCP-Key; must be **before** route registration

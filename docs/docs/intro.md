@@ -22,7 +22,7 @@ Connect them to Claude, Cursor, Grok Build, Windsurf, or any other MCP-capable a
 - llms.txt + GitHub-aware (READMEs, docs/, tree with token) ingestion with heading chunking + per-page URLs for grounding
 - Fuse.js (default, zero-dep) + optional advanced hybrid (BGE-small/base + RRF rerank, query/embed caches, --hybrid or --embedding-model)
 - `connect <slug> --client cursor|claude|...` — auto-merge + backup + clipboard + per-client steps + test prompt
-- Full interactive TUI dashboard (default `hoolix`; keys for start/stop/verify/connect/reindex/log tail)
+- Lightweight interactive TUI dashboard (default `hoolix`; keys for start/stop/verify/connect/reindex/log tail, with masked on-screen secrets)
 - Secure: per-server keys, `rotate`, advanced in-memory rate limiting (configurable + Retry-After), append-only + queryable/rotated per-server `audit.log` (via `hoolix audit`), response size/timeout guards. Full GITHUB_TOKEN support for private GitHub ingestion.
 - Self-contained binaries + Windows-first (ps-list/tree-kill + PowerShell installer)
 - `verify` (samples, relevance, grounding quality, hybrid mode demo)

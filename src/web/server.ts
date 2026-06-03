@@ -42,6 +42,19 @@ function generateAuthKey(): string {
   return 'mcp_' + randomBytes(24).toString('hex');
 }
 
+function maskSecret(value: string, visible = 6): string {
+  if (!value) return '';
+  if (value.length <= visible * 2) return `${value.slice(0, 2)}...`;
+  return `${value.slice(0, visible)}...${value.slice(-visible)}`;
+}
+
+function maskServerMetadata<T extends { authKey?: string }>(meta: T): T {
+  return {
+    ...meta,
+    authKey: meta.authKey ? maskSecret(meta.authKey) : meta.authKey,
+  };
+}
+
 function openBrowser(url: string) {
   const platform = process.platform;
   let cmd: string;
@@ -608,7 +621,7 @@ function createApp(token: string) {
     for (const s of servers) {
       const st = await serverManager.getStatus(s.slug);
       enriched.push({
-        ...s,
+        ...maskServerMetadata(s),
         running: st.running,
         port: st.port,
         pid: st.pid,
@@ -666,7 +679,7 @@ function createApp(token: string) {
       logger.warn(`GUI create: RAG indexing warning for ${slug}: ${e.message || e}`);
     }
 
-    return c.json({ ok: true, slug, meta });
+    return c.json({ ok: true, slug, meta: maskServerMetadata(meta) });
   });
 
   // Start
@@ -674,7 +687,7 @@ function createApp(token: string) {
     const slug = c.req.param('slug');
     try {
       const res = await serverManager.start(slug);
-      return c.json({ ok: true, ...res });
+      return c.json({ ok: true, ...res, authKey: maskSecret(res.authKey) });
     } catch (e: any) {
       return c.json({ error: e.message || String(e) }, 400);
     }
@@ -767,7 +780,7 @@ function createApp(token: string) {
     const slug = c.req.param('slug');
     const meta = await getServerMetadata(slug);
     const st = await serverManager.getStatus(slug);
-    return c.json({ ...meta, ...st });
+    return c.json({ ...maskServerMetadata(meta), ...st });
   });
 
   // Simple logs tail
@@ -803,14 +816,15 @@ export async function launchWebGui(opts: { port?: number; host?: string; open?: 
 
   const urlBase = `http://${host}:${port}`;
   const fullUrl = `${urlBase}/?token=${token}`;
+  const displayUrl = `${urlBase}/?token=${maskSecret(token)}`;
 
   logger.info(`Starting Hoolix Web GUI`);
   console.log(`\n◆ Hoolix Web GUI (beta)`);
-  console.log(`  Open: ${fullUrl}`);
+  console.log(`  Open: ${displayUrl}`);
   if (host !== '127.0.0.1') {
     console.log(`  WARNING: Listening on ${host}. Protect this port!`);
   }
-  console.log(`  Token: ${token} (included in the URL above for convenience)`);
+  console.log(`  Token: ${maskSecret(token)} (full token is stored in your local hoolix data directory)`);
 
   if (shouldOpen) {
     openBrowser(fullUrl);

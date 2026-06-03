@@ -1,7 +1,7 @@
 # hoolix Release Instructions
 
 ## Current Status (Beta)
-- Production-grade beta: llms.txt + GitHub-aware ingestion, Fuse + optional hybrid BGE RAG with grounding, `connect` one-command client wiring, full Ink TUI (default), key rotation, rate+audit, self-contained binaries, `verify` (quality + scores), polished CLI + `--json`, cross-platform installers + doctor.
+- Production-grade beta: llms.txt + GitHub-aware ingestion, Fuse + optional hybrid BGE RAG with grounding, `connect` one-command client wiring, lightweight pure-Node TUI (default), key rotation, rate+audit, self-contained binaries, `verify` (quality + scores), polished CLI + `--json`, cross-platform installers + doctor.
 - `hoolix` (TUI), `start`, `connect` just work after binary install.
 - Full release + CI (binary matrix + smoke), docs leadership (gold standard site + AGENTS.md), examples, contribution templates.
 - Binary size ~99-110 MB (documented tradeoffs for TUI + hybrid optionals; lazy loading enforced).
@@ -39,7 +39,7 @@
 ## Post-Release Polish Ideas (Future)
 - Add shell completions.
 - `hoolix export` for self-contained servers.
-- Full Ink TUI dashboard as the default experience.
+- Lightweight pure-Node TUI dashboard as the default experience.
 - Optional high-quality vector embeddings (Fuse.js is excellent and zero-dep today).
 - Better handling for aggressively protected llms.txt endpoints.
 

@@ -25,6 +25,7 @@ export async function startHostedServer(opts: HostOptions): Promise<void>;
 
 - Loads RAG for the slug
 - Creates `McpServer` + three tools (search / read / toc)
+- Wraps each tool handler with `MCP_TOOL_TIMEOUT_MS` (default 15000ms) and returns actionable timeout/error text instead of letting clients hang
 - Creates Hono app, registers unauthenticated `/health` first
 - Registers auth middleware **only** on `/mcp`
 - Connects `WebStandardStreamableHTTPServerTransport`
@@ -61,6 +62,8 @@ Middleware accepts:
 Mismatch or missing → 401 JSON.
 
 `/health` is deliberately outside the middleware.
+
+Host logs mask auth keys. Full keys are emitted only by explicit connection-producing commands such as `start` and `connect`.
 
 ## Tools Exposed to Clients
 

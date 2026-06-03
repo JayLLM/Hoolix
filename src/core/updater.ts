@@ -36,7 +36,8 @@ function getPlatformAssetName(): string | null {
 
   if (platform === 'win32') {
     if (arch === 'x64') return 'hoolix-windows-x64.exe';
-    if (arch === 'arm64') return 'hoolix-windows-arm64.exe';
+    // GitHub Releases currently ship Windows x64; Windows on ARM can run it under emulation.
+    if (arch === 'arm64') return 'hoolix-windows-x64.exe';
   }
 
   if (platform === 'darwin') {
@@ -167,16 +168,25 @@ function compareVersions(a: string, b: string): number {
   return comparePrerelease(pa.prerelease, pb.prerelease);
 }
 
-export async function performUpdate(restartSlugs: string[] = []): Promise<boolean> {
+export async function performUpdate(
+  restartSlugs: string[] = [],
+  options: { quiet?: boolean } = {},
+): Promise<boolean> {
+  const log = {
+    info: (...args: Parameters<typeof logger.info>) => { if (!options.quiet) logger.info(...args); },
+    warn: (...args: Parameters<typeof logger.warn>) => { if (!options.quiet) logger.warn(...args); },
+    error: (...args: Parameters<typeof logger.error>) => { if (!options.quiet) logger.error(...args); },
+    success: (...args: Parameters<typeof logger.success>) => { if (!options.quiet) logger.success(...args); },
+  };
   const updateInfo = await checkForUpdate();
 
   if (!updateInfo.isOutdated) {
-    logger.success(`You are already on the latest version (${updateInfo.currentVersion}).`);
+    log.success(`You are already on the latest version (${updateInfo.currentVersion}).`);
     return false;
   }
 
   if (!updateInfo.assetUrl || !updateInfo.assetName) {
-    logger.error('No suitable binary found for your platform in the latest release.');
+    log.error('No suitable binary found for your platform in the latest release.');
     return false;
   }
 
@@ -185,19 +195,19 @@ export async function performUpdate(restartSlugs: string[] = []): Promise<boolea
     !currentExe.includes('node') && !currentExe.includes('bun');
 
   if (!isCompiledBinary) {
-    logger.warn('Auto-update is only supported for compiled binaries.');
-    logger.info(`Please run: bun run build:binary (or download manually from GitHub)`);
+    log.warn('Auto-update is only supported for compiled binaries.');
+    log.info(`Please run: bun run build:binary (or download manually from GitHub)`);
     return false;
   }
 
-  logger.info(`Updating from ${updateInfo.currentVersion} → ${updateInfo.latestVersion}...`);
+  log.info(`Updating from ${updateInfo.currentVersion} → ${updateInfo.latestVersion}...`);
 
   const tmpPath = currentExe + '.tmp';
   const backupPath = currentExe + '.old';
 
   try {
     // Download + stream to tmp
-    logger.info('Downloading new version...');
+    log.info('Downloading new version...');
 
     const res = await fetch(updateInfo.assetUrl);
     if (!res.ok || !res.body) throw new Error('Failed to download update');
@@ -226,7 +236,7 @@ export async function performUpdate(restartSlugs: string[] = []): Promise<boolea
       await fs.chmod(tmpPath, 0o755);
     }
 
-    logger.info('Applying update...');
+    log.info('Applying update...');
 
     const isWindows = process.platform === 'win32';
 
@@ -276,8 +286,8 @@ del "%~f0" >nul 2>&1
       });
       child.unref();
 
-      logger.success(`Successfully prepared update to version ${updateInfo.latestVersion}!`);
-      logger.info('This process will now exit; the new version will be applied and launched automatically in a moment.');
+      log.success(`Successfully prepared update to version ${updateInfo.latestVersion}!`);
+      log.info('This process will now exit; the new version will be applied and launched automatically in a moment.');
 
       // Exit promptly so the helper batch can manipulate the files without the old exe being locked.
       await new Promise((r) => setTimeout(r, 150));
@@ -293,19 +303,19 @@ del "%~f0" >nul 2>&1
       // cleanup backup
       await fs.remove(backupPath).catch(() => {});
 
-      logger.success(`Successfully updated to version ${updateInfo.latestVersion}!`);
-      logger.warn('Please restart the application for the update to take effect.');
+      log.success(`Successfully updated to version ${updateInfo.latestVersion}!`);
+      log.warn('Please restart the application for the update to take effect.');
 
       return true;
     }
   } catch (err: any) {
-    logger.error('Update failed:', err.message);
+    log.error('Update failed:', err.message);
 
     // Best-effort rollback / cleanup
     if (await fs.pathExists(backupPath)) {
       try {
         await fs.rename(backupPath, currentExe);
-        logger.info('Rolled back to previous version.');
+        log.info('Rolled back to previous version.');
       } catch {}
     }
 

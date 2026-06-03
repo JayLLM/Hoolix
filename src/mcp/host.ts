@@ -23,6 +23,41 @@ export interface HostOptions {
   bindHost?: string;
 }
 
+const DEFAULT_TOOL_TIMEOUT_MS = 15_000;
+
+function maskSecret(value: string, visible = 6): string {
+  if (!value) return '';
+  if (value.length <= visible * 2) return `${value.slice(0, 2)}...`;
+  return `${value.slice(0, visible)}...${value.slice(-visible)}`;
+}
+
+function getToolTimeoutMs(): number {
+  const parsed = parseInt(process.env.MCP_TOOL_TIMEOUT_MS || '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TOOL_TIMEOUT_MS;
+}
+
+async function withToolTimeout<T>(tool: string, op: Promise<T>): Promise<T> {
+  const timeoutMs = getToolTimeoutMs();
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`${tool} timed out after ${timeoutMs}ms. Next: retry with a narrower query or lower limit.`));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([op, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+function toolErrorResponse(message: string) {
+  return {
+    content: [{ type: 'text' as const, text: message }],
+  };
+}
+
 async function parseArgs(): Promise<HostOptions> {
   const args = process.argv.slice(2);
   const get = (name: string) => {
@@ -112,19 +147,26 @@ async function startHostedServer(opts: HostOptions) {
     } as any,
     async (args: any) => {
       const { query, limit, mode } = args || {};
-      const results = await rag.search(query, { limit, mode });
-      await audit('search_documentation', { query: String(query).slice(0, 120), limit, mode, hits: results.length });
-      let formatted = results.map((r, i) => 
-        `[${i + 1}] ${r.metadata.title || r.metadata.url}\n${r.content}\nSource: ${r.metadata.url}\n`
-      ).join('\n---\n');
-      const MAX_CHARS = 18000;
-      if (formatted.length > MAX_CHARS) {
-        formatted = formatted.slice(0, MAX_CHARS) + '\n... (truncated for response size; use read_documentation_page or smaller limit for full content)';
-      }
+      try {
+        return await withToolTimeout('search_documentation', (async () => {
+          const results = await rag.search(query, { limit, mode });
+          await audit('search_documentation', { query: String(query).slice(0, 120), limit, mode, hits: results.length });
+          let formatted = results.map((r, i) => 
+            `[${i + 1}] ${r.metadata.title || r.metadata.url}\n${r.content}\nSource: ${r.metadata.url}\n`
+          ).join('\n---\n');
+          const MAX_CHARS = 18000;
+          if (formatted.length > MAX_CHARS) {
+            formatted = formatted.slice(0, MAX_CHARS) + '\n... (truncated for response size; use read_documentation_page or smaller limit for full content)';
+          }
 
-      return {
-        content: [{ type: 'text', text: formatted || 'No relevant documentation found.' }],
-      };
+          return {
+            content: [{ type: 'text' as const, text: formatted || 'No relevant documentation found.' }],
+          };
+        })());
+      } catch (e: any) {
+        await audit('tool_error', { toolName: 'search_documentation', reason: e?.message || String(e) });
+        return toolErrorResponse(e?.message || 'search_documentation failed. Next: retry with a narrower query.');
+      }
     }
   );
 
@@ -140,15 +182,22 @@ async function startHostedServer(opts: HostOptions) {
     } as any,
     async (args: any) => {
       const { urlOrPath, maxChunks } = args || {};
-      const page = await rag.readPage(urlOrPath, maxChunks);
-      if (!page) {
-        await audit('read_documentation_page', { urlOrPath: String(urlOrPath).slice(0, 200), found: false });
-        return { content: [{ type: 'text', text: `Page not found: ${urlOrPath}` }] };
+      try {
+        return await withToolTimeout('read_documentation_page', (async () => {
+          const page = await rag.readPage(urlOrPath, maxChunks);
+          if (!page) {
+            await audit('read_documentation_page', { urlOrPath: String(urlOrPath).slice(0, 200), found: false });
+            return { content: [{ type: 'text' as const, text: `Page not found: ${urlOrPath}` }] };
+          }
+          await audit('read_documentation_page', { urlOrPath: String(urlOrPath).slice(0, 200), found: true, chunks: page.chunks?.length || 0 });
+          return {
+            content: [{ type: 'text' as const, text: `# ${page.title}\n\nSource: ${page.url}\n\n${page.content}` }],
+          };
+        })());
+      } catch (e: any) {
+        await audit('tool_error', { toolName: 'read_documentation_page', reason: e?.message || String(e) });
+        return toolErrorResponse(e?.message || 'read_documentation_page failed. Next: retry with a smaller maxChunks value.');
       }
-      await audit('read_documentation_page', { urlOrPath: String(urlOrPath).slice(0, 200), found: true, chunks: page.chunks?.length || 0 });
-      return {
-        content: [{ type: 'text', text: `# ${page.title}\n\n${page.content}` }],
-      };
     }
   );
 
@@ -159,10 +208,19 @@ async function startHostedServer(opts: HostOptions) {
       description: 'Returns a reconstructed table of contents / outline of the entire documentation set.',
     },
     async () => {
-      const toc = await rag.getTableOfContents();
-      await audit('get_table_of_contents', { entries: toc.length });
-      const text = toc.map(item => `${'  '.repeat(item.level - 1)}- ${item.title}`).join('\n');
-      return { content: [{ type: 'text', text: text || 'No table of contents available.' }] };
+      try {
+        return await withToolTimeout('get_table_of_contents', (async () => {
+          const toc = await rag.getTableOfContents();
+          await audit('get_table_of_contents', { entries: toc.length });
+          const text = toc
+            .map(item => `${'  '.repeat(item.level - 1)}- ${item.title}${item.url ? `\n${'  '.repeat(item.level)}Source: ${item.url}` : ''}`)
+            .join('\n');
+          return { content: [{ type: 'text' as const, text: text || 'No table of contents available.' }] };
+        })());
+      } catch (e: any) {
+        await audit('tool_error', { toolName: 'get_table_of_contents', reason: e?.message || String(e) });
+        return toolErrorResponse(e?.message || 'get_table_of_contents failed. Next: retry after reindexing this server.');
+      }
     }
   );
 
@@ -226,7 +284,7 @@ async function startHostedServer(opts: HostOptions) {
   process.on('SIGINT', shutdown);
 
   logger.info(`MCP server ready at http://${bindHost}:${port}/mcp`);
-  logger.info(`Auth header required: Authorization: Bearer ${authKey}`);
+  logger.info(`Auth header required: Authorization: Bearer ${maskSecret(authKey)}`);
 
   serve({
     fetch: app.fetch,

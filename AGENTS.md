@@ -12,7 +12,7 @@ It must feel like a **production-grade, daily must-have** tool:
 - Robust, observable ingestion (llms + GitHub tree + anti-bot resilience).
 - High-quality RAG that actually helps agents (grounded results with Source URLs, optional hybrid semantic).
 - Secure-by-default (keys, rotation, rate limits, audit).
-- Excellent DX: polished CLI + TUI (default), `verify` for trust, `connect` magic, `--json` everywhere.
+- Excellent DX: polished CLI + lightweight TUI (default), `verify` for trust, `connect` magic, `--json` everywhere.
 - Zero-friction after simple binary install (`install.sh` / `install.ps1`).
 - Best-in-class open-source experience (docs, examples, contribution hygiene).
 
@@ -30,7 +30,7 @@ It must feel like a **production-grade, daily must-have** tool:
 - **CLI**: Hand-rolled dispatcher in `src/index.ts` (switch on `process.argv[2] || 'tui'`, manual `indexOf`/`includes`, `@clack/prompts` for interactive). Every machine-consumable command **must** support `--json`.
 - **MCP**: `@modelcontextprotocol/server` + Hono + `WebStandardStreamableHTTPServerTransport`. Tools: `search_documentation`, `read_documentation_page`, `get_table_of_contents`. All responses must include source URLs.
 - **RAG**: Fuse.js + direct keyword (default, zero-dep). Optional advanced hybrid (bge-small/base + RRF reranker, query/embed caches, alpha weights) behind `--hybrid` / `--embedding-model` + lazy dynamic import only (see src/rag/{models.ts,store.ts}). Never put LanceDB or always-on embeddings in the hot path without feature flag + migration story. Update advanced-rag.md + AGENTS when changing fusion/eval/model list.
-- **TUI**: Ink + React (default experience when no args). **Must** be dynamically imported only on the tui path + TTY guard. Non-TUI commands must not pay the cost at runtime.
+- **TUI**: Lightweight pure-Node raw-mode dashboard (default experience when no args). **Must** be dynamically imported only on the tui path + TTY/raw-mode guard. Non-TUI commands must not pay the cost at runtime. Do not add Ink/React unless an ADR explicitly accepts the binary-size and startup tradeoff.
 - **Distribution (critical invariant)**: Packaged binaries (`dist-bin/`) must allow `hoolix start <slug>` and `hoolix` (TUI) with zero external runtime or source. `__internal-host` self-spawn model in `ServerManager` + `host.ts`.
 - **Cross-platform**: `env-paths` for all data. `ps-list` + `tree-kill` for process mgmt. No Unix signals/symlinks in core paths. Test Windows early.
 - **Validation**: Zod for all persisted + external data.
@@ -51,7 +51,7 @@ src/
 │   └── host.ts              # MCP server (tools, Hono, auth, rate, audit). Exports startHostedServer. Static import in index helps bundler.
 ├── process/
 │   └── manager.ts           # ServerManager (spawn health, Windows-safe ps-list/tree-kill, runtime markers, __internal-host detection)
-├── tui/                     # index.tsx (Ink TUI, dynamic import only)
+├── tui/                     # index.tsx (pure-Node TUI, dynamic import only)
 └── utils/                   # (future small shared; currently empty)
 
 bin/hoolix.js            # Shim (dist vs tsx)
@@ -102,11 +102,11 @@ Empty dirs (`commands/`, `utils/`, `mcp/tools/`) are intentional placeholders �
 - Test spawn/host/paths on Windows in every release.
 
 ### 6. TUI (Default Experience)
-- `src/tui/index.tsx` (Ink + React).
+- `src/tui/index.tsx` is a pure-Node raw-mode terminal dashboard (no Ink/React dependency today).
 - Launched only via **dynamic import** in the default/tui case in `index.ts`.
-- TTY guard (`!stdout.isTTY || CI`) + graceful fallback to text help.
+- TTY + raw-mode guard (`!stdout.isTTY || CI`, plus `setRawMode` probe) + graceful fallback to text help.
 - Uses `listServers`, `serverManager.getStatus/start/stop`, `getServerDir` + fs for host.log tail.
-- Keyboard-driven (numbers, letters s/v/c/i/x/r/q, arrows). Live poll status. Action feedback.
+- Keyboard-driven (numbers, letters s/v/c/i/x/r/q, arrows). Live poll status. Action feedback. Full token client config may be copied to clipboard, but on-screen secret display must stay masked.
 - When adding TUI actions that duplicate CLI (reindex/verify), prefer extracting small pure helpers from `index.ts` (or accept minimal dupe for v1 and note it).
 
 ### 7. Optional Hybrid RAG

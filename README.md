@@ -13,7 +13,7 @@ Hoolix turns any documentation URL (llms.txt / llms-full.txt, GitHub repos, or r
 
 **The default daily tool for agentic AI engineers** — give your agents (Grok, Claude, Cursor, Windsurf, Continue, Cline, Aider, etc.) high-quality, grounded, source-linked documentation tools in seconds.
 
-**Current status**: Production-grade beta with TUI, hybrid RAG foundation, GitHub-aware ingestion, one-command client wiring (`connect`), key rotation, rate limiting + audit, and best-in-class docs. Binaries "just work" after install.
+**Current status**: Production-grade beta with a lightweight TUI, hybrid RAG foundation, GitHub-aware ingestion, one-command client wiring (`connect`), key rotation, tool timeouts, rate limiting + audit, and best-in-class docs. Binaries "just work" after install.
 
 ## Installation (Recommended: Prebuilt Binaries)
 
@@ -69,7 +69,7 @@ hoolix connect xai-docs --client cursor     # or claude, windsurf, continue, cli
 # Then reload/restart the client. Test prompt: "Use search_documentation for installation instructions."
 ```
 
-TUI (default): just run `hoolix` with no args for an interactive dashboard (start/stop/verify/connect with keys).
+TUI (default): just run `hoolix` with no args for an interactive dashboard (start/stop/verify/connect/reindex, log tail, masked on-screen secrets with full config copied only when requested).
 
 That's it — self-contained binary, auth, grounded tools (`search_documentation`, `read_documentation_page`, `get_table_of_contents`).
 
@@ -89,17 +89,17 @@ That's it — self-contained binary, auth, grounded tools (`search_documentation
 | `uninstall [--yes]`            | Complete removal (data + binary + PATH on Win)   |
 | (no args)                      | Launch TUI dashboard (start/stop/verify/connect) |
 
-All commands that make sense support `--json` for scripting.
+All lifecycle and machine-consumable commands support `--json` for scripting.
 
 ## Features
 
 - **llms.txt + GitHub first-class** — auto-discovers `llms.txt`/`llms-full.txt`, GitHub READMEs + docs/ + tree (with token), multi-page, heading-aware chunking
 - **RAG that grounds agents** — Fuse.js (default, zero-dep) + optional advanced hybrid (BGE-small/base + RRF reranking, smart caches, --hybrid/--embedding-model). Every result ships `Source: <url>` + sectionPath. See docs for eval & best practices.
 - **One-command client wiring** — `connect <slug> --client cursor|claude|...` (auto-merge, .bak, clipboard, per-client instructions + test prompt)
-- **Interactive TUI dashboard** (default when no args) — list, live status, keys for start/stop/verify/connect/reindex, log tail
-- **Secure & reliable** — per-server keys + `rotate`, advanced rate limiting (env-configurable, 429 + Retry-After), append-only + queryable `audit.log` (`hoolix audit <slug>` with filters + auto-rotation), response guards. Private GitHub fully supported via `GITHUB_TOKEN` (raw + tree).
+- **Interactive TUI dashboard** (default when no args) — list, live status, keyboard actions for start/stop/verify/connect/reindex, log tail, masked on-screen secrets
+- **Secure & reliable** — per-server keys + `rotate`, MCP tool timeout wrappers (`MCP_TOOL_TIMEOUT_MS`), advanced rate limiting (env-configurable, 429 + Retry-After), append-only + queryable `audit.log` (`hoolix audit <slug>` with filters + auto-rotation), response guards. Private GitHub fully supported via `GITHUB_TOKEN` (raw + tree).
 - **Self-contained binaries** — `hoolix start` (and TUI actions) work after `install.sh` with no runtime/source
-- **DX gold** — `verify` (samples + relevance + grounding score), `reindex`, `doctor`, `--json` everywhere, actionable errors
+- **DX gold** — `verify` (samples + relevance + grounding score), `reindex`, `doctor`, `--json` for lifecycle and machine-consumable commands, actionable errors
 - **Cross-platform** — Windows-first (ps-list, tree-kill, .cmd, PowerShell installer) + mac/linux arm/x64
 
 ## How It Works (High Level)

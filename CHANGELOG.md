@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added MCP tool timeout wrappers (`MCP_TOOL_TIMEOUT_MS`, default 15s) for search, page reads, and table-of-contents requests, with audited tool errors and actionable timeout responses.
+- Added JSON output support for lifecycle commands that were previously human-only: `create`, `delete`, `reindex`, `rotate`, `start`, `stop`, `update`, and `uninstall`.
+- Added macOS Intel (`hoolix-darwin-x64`) to the release asset matrix.
+
+### Changed
+
+- Masked auth keys in host logs, `info --json`, Web GUI list/info/start responses, and on-screen TUI connect output while preserving explicit full-token payloads for `start`, `connect`, and `rotate`.
+- Disabled the background update check during `--json` commands so machine-readable output is not mixed with status warnings.
+- Updated README, AGENTS, packaging, release, auth, CLI, and host docs to align TUI, timeout, secret-handling, JSON, and release-asset claims with implementation.
+- Windows ARM64 installs now use the shipped Windows x64 release asset under emulation until a native ARM64 asset is published.
+
 ## [0.0.1-beta.0] - 2026-06-03
 
 ### Added

@@ -11,7 +11,7 @@ Every server gets a unique, cryptographically strong key at creation time:
 'mcp_' + randomBytes(24).toString('hex')
 ```
 
-The key is shown **only** in the output of `hoolix start` and in `info` while the server is running. It is stored in `metadata.json` but never printed by `list`.
+The full key is shown only when a command needs to produce a usable connection payload, such as `hoolix start`, `hoolix connect --json`, or the new-key output from `hoolix rotate`. Status-style surfaces such as `list`, `info --json`, host logs, and Web GUI list/info responses mask auth keys.
 
 ## How Clients Send It
 
@@ -31,8 +31,9 @@ The MCP host middleware checks before the Streamable HTTP transport sees the req
 ## Security Model
 
 - Keys are per-server (not global).
-- No key rotation UI today (delete + recreate to get a new one).
+- Rotate keys with `hoolix rotate <slug> --yes` and then restart the server.
 - The key is only in memory of the running host and in the registry file on disk (protect that directory with normal OS permissions).
+- MCP tool handlers use timeout wrappers (`MCP_TOOL_TIMEOUT_MS`, default 15000ms), response caps, rate limiting, and append-only audit logging.
 - Never commit keys to git or share them in screenshots.
 
 ## See Also

@@ -86,11 +86,11 @@ jobs:
             binary-name: hoolix-linux-arm64
             ext: ''
           # macOS Intel
-          # - runner: macos-13
-          #   os: darwin
-          #   arch: x64
-          #   binary-name: hoolix-darwin-x64
-          #   ext: ''
+          - runner: macos-13
+            os: darwin
+            arch: x64
+            binary-name: hoolix-darwin-x64
+            ext: ''
           # macOS Apple Silicon
           - runner: macos-14
             os: darwin
@@ -190,6 +190,7 @@ jobs:
           files: |
             ./dist-bin/hoolix-linux-x64
             ./dist-bin/hoolix-linux-arm64
+            ./dist-bin/hoolix-darwin-x64
             ./dist-bin/hoolix-darwin-arm64
             ./dist-bin/hoolix-windows-x64.exe
           # prerelease based on input if dispatch

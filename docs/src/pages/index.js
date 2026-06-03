@@ -197,7 +197,7 @@ function FeaturesSection() {
       icon: '🪄',
       title: 'Connect magic',
       description:
-        'A polished CLI and TUI create, verify, start, connect, rotate, and reindex servers with --json everywhere for automation.',
+        'A polished CLI and lightweight TUI create, verify, start, connect, rotate, and reindex servers with JSON output for automation.',
       to: '/docs/api-reference/cli',
     },
     {
