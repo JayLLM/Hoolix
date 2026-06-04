@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.1-beta.11] - 2026-06-04
+
 ### Added
 
 - **Phase 1: MCP server platform — two-kind template system** — `CatalogTemplateSchema` gains `kind` (`'docs-rag'` | `'mcp-server'`), `server: ServerRunConfigSchema` (command/args/env with `{input}` and `{credential}` interpolation), `credentials: CredentialInputSchema[]`, and `homepage`. All existing templates now carry `kind: 'docs-rag'` explicitly. Fully backward compatible — existing servers parse unchanged.
@@ -143,7 +145,8 @@ App currently hangs during github workflow. Will be investigated later.
 - Added optional hybrid RAG with lazy BGE embedding + RRF reranker behind `--hybrid` / `--embedding-model`.
 - Added one-command client wiring for Claude/Cursor/Windsurf/Continue/Cline/GrokBuild and `--json` scripting support.
 
-[Unreleased]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.10...HEAD
+[Unreleased]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.11...HEAD
+[0.0.1-beta.11]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.10...v0.0.1-beta.11
 [0.0.1-beta.10]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.9...v0.0.1-beta.10
 [0.0.1-beta.9]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.8...v0.0.1-beta.9
 [0.0.1-beta.8]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.7...v0.0.1-beta.8
