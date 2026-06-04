@@ -290,9 +290,10 @@ function buildFrame(state: TUIState): string {
       '',
       `  1. hoolix create "My Docs" --url https://.../llms.txt --yes`,
       `  2. hoolix templates list`,
-      `  3. hoolix verify my-docs`,
-      `  4. hoolix start my-docs`,
-      `  5. hoolix connect my-docs --client cursor`,
+      `  3. hoolix trial`,
+      `  4. hoolix verify my-docs`,
+      `  5. hoolix start my-docs`,
+      `  6. hoolix connect my-docs --client cursor`,
       '',
       `  ${B.dot} Press n to copy the create command.`,
     ];
@@ -338,7 +339,7 @@ function buildFrame(state: TUIState): string {
   // ── Key help bar ──────────────────────────────────────────────────────────
   out.push(`${B.ml}${B.h.repeat(innerW)}${B.mr}`);
 
-  const keyHelp = '↑↓/1-9 select · s start/stop · v verify · c connect · x reindex · n new · t templates · r refresh · q quit';
+  const keyHelp = '↑↓/1-9 select · s start/stop · v verify · c connect · x reindex · n new · t templates/trial · r refresh · q quit';
   const helpLine = pad(` ${keyHelp}`, innerW);
   out.push(`${B.v}${A.dim}${helpLine}${A.reset}${B.v}`);
 
@@ -432,7 +433,7 @@ async function handleKey(key: string, state: TUIState): Promise<void> {
   }
 
   if (key.toLowerCase() === 't') {
-    const cmd    = 'hoolix templates list';
+    const cmd    = noServers ? 'hoolix trial' : 'hoolix templates list';
     const copied = await copyToClipboard(cmd);
     setAction(state, copied ? `Copied: ${cmd}` : `Run: ${cmd}`);
     setTimeout(() => { setAction(state, null); render(state); }, 3000);

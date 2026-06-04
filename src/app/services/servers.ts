@@ -44,6 +44,7 @@ import {
   summarizeDefinition,
 } from '../../sources/registry.js';
 import { ServerDefinitionSchema, type ServerDefinition } from '../../sources/types.js';
+import { resolveCustomSource } from '../../sources/plugins.js';
 
 const DEFAULT_MAX_CHUNKS = 6000;
 const DEFAULT_MAX_PAGES = 80;
@@ -162,9 +163,10 @@ async function ingestDefinition(
     onProgress?: AppProgressHandler;
   },
 ): Promise<IngestionResult> {
-  if (definition.sources.length === 1) {
-    const source = definition.sources[0];
-    return ingestDocumentation(sourceToIngestionUrl(definition.sources[0]), {
+  const resolvedDefinition = await resolveDefinitionSources(definition);
+  if (resolvedDefinition.sources.length === 1) {
+    const source = resolvedDefinition.sources[0];
+    return ingestDocumentation(sourceToIngestionUrl(source), {
       maxChunks: options.maxChunks,
       maxPages: options.maxPages,
       headers: sourceHeaders(source),
@@ -173,13 +175,13 @@ async function ingestDefinition(
   }
 
   const results: IngestionResult[] = [];
-  for (let i = 0; i < definition.sources.length; i++) {
-    const source = definition.sources[i];
+  for (let i = 0; i < resolvedDefinition.sources.length; i++) {
+    const source = resolvedDefinition.sources[i];
     emitProgress(options.onProgress, {
       stage: 'fetch',
-      message: `Ingesting source ${i + 1}/${definition.sources.length}: ${sourceLabel(source)}`,
+      message: `Ingesting source ${i + 1}/${resolvedDefinition.sources.length}: ${sourceLabel(source)}`,
       current: i + 1,
-      total: definition.sources.length,
+      total: resolvedDefinition.sources.length,
     });
     const result = await ingestDocumentation(sourceToIngestionUrl(source), {
       maxChunks: options.maxChunks,
@@ -193,7 +195,19 @@ async function ingestDefinition(
     results.push(result);
   }
 
-  return combineIngestionResults(definition, results, options.maxChunks, options.maxPages);
+  return combineIngestionResults(resolvedDefinition, results, options.maxChunks, options.maxPages);
+}
+
+async function resolveDefinitionSources(definition: ServerDefinition): Promise<ServerDefinition> {
+  const sources = [];
+  for (const source of definition.sources) {
+    if (source.type === 'custom') {
+      sources.push(await resolveCustomSource(source.provider, source.value));
+    } else {
+      sources.push(source);
+    }
+  }
+  return { ...definition, sources };
 }
 
 export async function createServer(input: CreateServerInput): Promise<CreateServerResult> {

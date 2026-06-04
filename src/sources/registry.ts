@@ -60,7 +60,17 @@ export function parseCliSource(value: string): SourceDefinition {
     return SourceDefinitionSchema.parse({ type: 'manual', url: raw, label: 'manual' });
   }
 
-  throw new Error(`Unsupported --source type "${type}". Next: use docs, llms, web, github, or manual.`);
+  if (type === 'custom') {
+    const providerSep = raw.indexOf(':');
+    if (providerSep <= 0) {
+      throw new Error(`Invalid custom source "${value}". Next: use --source custom:<provider>:<value>.`);
+    }
+    const provider = raw.slice(0, providerSep).trim();
+    const customValue = raw.slice(providerSep + 1).trim();
+    return SourceDefinitionSchema.parse({ type: 'custom', provider, value: customValue, label: provider });
+  }
+
+  throw new Error(`Unsupported --source type "${type}". Next: use docs, llms, web, github, manual, or custom.`);
 }
 
 export function parseCliSources(args: string[]): SourceDefinition[] {
@@ -118,6 +128,9 @@ export function applySourceAuth(
 }
 
 export function sourceToIngestionUrl(source: SourceDefinition): string {
+  if (source.type === 'custom') {
+    throw new Error(`Custom source "${source.provider}" must be resolved before ingestion.`);
+  }
   if (source.type === 'github') {
     const base = `https://github.com/${source.repo}`;
     return source.ref ? `${base}/tree/${source.ref}` : base;
@@ -126,7 +139,7 @@ export function sourceToIngestionUrl(source: SourceDefinition): string {
 }
 
 export function sourceHeaders(source: SourceDefinition): Record<string, string> {
-  if (source.type === 'github') return {};
+  if (source.type === 'github' || source.type === 'custom') return {};
   const headers = { ...(source.headers || {}) };
   if (source.cookie) headers.Cookie = source.cookie;
   return headers;
@@ -135,6 +148,7 @@ export function sourceHeaders(source: SourceDefinition): Record<string, string> 
 export function sourceLabel(source: SourceDefinition): string {
   if (source.label) return source.label;
   if (source.type === 'github') return source.repo;
+  if (source.type === 'custom') return `${source.provider}:${source.value}`;
   return sourceLabelFromUrl(source.url);
 }
 

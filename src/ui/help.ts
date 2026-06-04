@@ -10,6 +10,7 @@ ${chalk.bold('Usage')}
 
 ${chalk.bold('Commands')}
   ${ui.accent('create')} [name]         Create server from docs URL/sources/templates (--url, --source, --template, --header, --cookie, --schedule)
+  ${ui.accent('trial')}                 One-click public trial server for npx / first-run demos (--json)
   ${ui.accent('templates')}             List and inspect official templates (list, info <id>, --json)
   ${ui.accent('list')}                  List registered servers (--json)
   ${ui.accent('start')} <slug>          Start the MCP server (--port, --transport http|stdio, --json)
@@ -32,9 +33,11 @@ ${chalk.bold('Commands')}
 
 ${chalk.bold('Examples')}
   ${ui.accent('›')} hoolix create "My Docs" --url https://example.com/llms.txt --yes
+  ${ui.accent('›')} npx hoolix trial --json
   ${ui.accent('›')} hoolix templates list
   ${ui.accent('›')} hoolix create "React Docs" --template docs-rag --url https://react.dev/llms.txt --yes
   ${ui.accent('›')} hoolix create "Private Docs" --url https://docs.example.com/llms.txt --header "Authorization: Bearer $TOKEN" --yes
+  ${ui.accent('›')} hoolix export my-docs --team --strip-key --file team-docs.hoolix.json
   ${ui.accent('›')} hoolix reindex my-docs --schedule daily --yes
   ${ui.accent('›')} hoolix reindex --due --json
   ${ui.accent('›')} hoolix create "Stack" --source docs:https://react.dev/llms.txt --source github:vercel/next.js --yes

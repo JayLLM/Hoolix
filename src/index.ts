@@ -69,6 +69,12 @@ async function main() {
       await cmdCreate(args, jsonOutput);
       return;
     }
+    case 'trial':
+    case 'try': {
+      const { cmdTrial } = await import('./commands/trial.js');
+      await cmdTrial(args, jsonOutput);
+      return;
+    }
     case 'delete': {
       const { cmdDelete } = await import('./commands/delete.js');
       await cmdDelete(args, jsonOutput);

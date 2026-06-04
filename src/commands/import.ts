@@ -20,7 +20,7 @@ export async function cmdImport(args: string[], json: boolean): Promise<void> {
     throw new Error(`Could not read import file: ${e.message || e}`);
   });
 
-  if (!bundle || bundle.version !== 1 || !bundle.metadata || !Array.isArray(bundle.chunks)) {
+  if (!bundle || ![1, 2].includes(bundle.version) || !bundle.metadata || !Array.isArray(bundle.chunks)) {
     if (json) printJson({ ok: false, file, error: 'Invalid hoolix export bundle.' });
     else logger.error('Invalid hoolix export bundle.');
     process.exit(1);

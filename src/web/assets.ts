@@ -76,6 +76,9 @@ export function buildDashboardHtml(_initialToken: string): string {
           <a href="#" onclick="showCreateModal(); return false;" class="nav-link flex items-center gap-x-3 px-3 py-2 text-sm hover:bg-zinc-800 rounded-lg">
             <i class="fa-solid fa-plus w-4"></i> <span>Create Server</span>
           </a>
+          <a href="#" onclick="createTrial(); return false;" class="nav-link flex items-center gap-x-3 px-3 py-2 text-sm hover:bg-zinc-800 rounded-lg">
+            <i class="fa-solid fa-plus w-4"></i> <span>Trial Server</span>
+          </a>
           <a href="#" onclick="showView('templates'); return false;" class="nav-link flex items-center gap-x-3 px-3 py-2 text-sm hover:bg-zinc-800 rounded-lg" data-view="templates">
             <i class="fa-solid fa-list w-4"></i> <span>Templates</span>
           </a>
@@ -340,6 +343,7 @@ export function buildDashboardHtml(_initialToken: string): string {
             </button>
             <button data-action="reindex" data-slug="\${s.slug}" class="text-xs px-3 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700">Reindex</button>
             <button data-action="verify" data-slug="\${s.slug}" class="text-xs px-3 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700">Verify</button>
+            <button data-action="stats" data-slug="\${s.slug}" class="text-xs px-3 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700">Stats</button>
             <button data-action="play" data-slug="\${s.slug}" class="text-xs px-3 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700">Playground</button>
             <button data-action="delete" data-slug="\${s.slug}" class="text-xs px-3 py-1 rounded-lg bg-red-900/40 hover:bg-red-900 text-red-400 ml-auto">Delete</button>
           </div>
@@ -360,6 +364,8 @@ export function buildDashboardHtml(_initialToken: string): string {
               refreshServers();
             } else if (action === 'verify') {
               await verifyServer(slug);
+            } else if (action === 'stats') {
+              await showStats(slug);
             } else if (action === 'play') {
               showView('playground');
               setTimeout(() => {
@@ -406,6 +412,15 @@ export function buildDashboardHtml(_initialToken: string): string {
         const data = await api('/api/servers/' + slug + '/verify');
         const msg = data.samples.map(s => s.query + ': ' + (s.hits.length ? s.hits[0].metadata.url : 'no hits')).join('\\n');
         alert('Verify results for ' + slug + ':\\n\\n' + msg);
+      } catch (e) { alert(e.message); }
+    }
+
+    async function showStats(slug) {
+      try {
+        const data = await api('/api/servers/' + slug + '/stats?days=30');
+        const tools = data.byTool ? Object.entries(data.byTool).map(([k, v]) => k + ': ' + v).join('\\n') : 'No tool calls yet';
+        const health = data.health ? '\\n\\nAvg hits/search: ' + data.health.avgHitsPerSearch + '\\nZero-hit searches: ' + data.health.zeroHitSearches + '\\nRead success: ' + data.health.readSuccessRate + '%' : '';
+        alert('Stats for ' + slug + '\\n\\nTotal calls: ' + (data.total || 0) + '\\n\\n' + tools + health);
       } catch (e) { alert(e.message); }
     }
 
@@ -500,6 +515,17 @@ export function buildDashboardHtml(_initialToken: string): string {
         setTimeout(refreshServers, 400);
       } catch (e) {
         alert('Create failed: ' + e.message);
+      }
+    }
+
+    async function createTrial() {
+      try {
+        const res = await api('/api/trial', { method: 'POST' });
+        showToast(res.existed ? 'Trial server already exists' : 'Trial server created');
+        showView('servers');
+        setTimeout(refreshServers, 400);
+      } catch (e) {
+        alert('Trial failed: ' + e.message);
       }
     }
 

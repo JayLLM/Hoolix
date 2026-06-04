@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added Phase 4 growth and ecosystem polish: shared analytics reports powering richer `hoolix stats` and GUI stats cards, team-safe export bundles with `--strip-key`, `--team`, and source-auth stripping by default, `hoolix trial` for one-command npx demos, GUI/TUI trial shortcuts, and JSON-manifest custom source provider hooks via `custom:<provider>:<value>`.
+
 ## [0.0.1-beta.8] - 2026-06-04
 
 - Added the Phase 1 server definition foundation: metadata now carries an optional validated `definition` with typed sources, legacy servers are migrated on read, `hoolix create` supports additive repeated `--source type:value` inputs, and CLI/TUI/Web GUI surfaces show compact multi-source summaries without changing existing `--url` behavior.

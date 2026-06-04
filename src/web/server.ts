@@ -31,6 +31,7 @@ import {
 } from '../app/services/servers.js';
 import { SourceDefinitionSchema, type SourceDefinition } from '../sources/types.js';
 import { instantiateTemplate } from '../app/services/catalog.js';
+import { getStatsReport } from '../app/services/analytics.js';
 
 const GUI_TOKEN_FILE = '.gui-token';
 
@@ -217,6 +218,22 @@ function createApp(token: string) {
     }
   });
 
+  app.post('/api/trial', async (c) => {
+    const existing = await getServerMetadata('hoolix-trial').catch(() => null);
+    if (existing) return c.json({ ok: true, slug: existing.slug, existed: true });
+    const instantiated = await instantiateTemplate('docs-rag', {
+      url: 'https://raw.githubusercontent.com/modelcontextprotocol/servers/main/README.md',
+    });
+    const created = await createServer({
+      name: 'Hoolix Trial',
+      definition: instantiated.definition,
+      embeddingModel: 'fuse',
+      maxChunks: 1200,
+      maxPages: 10,
+    });
+    return c.json({ ok: true, slug: created.meta.slug, existed: false });
+  });
+
   // Start
   app.post('/api/servers/:slug/start', async (c) => {
     const slug = c.req.param('slug');
@@ -259,6 +276,13 @@ function createApp(token: string) {
       samples: report.samples.map((sample) => ({ query: sample.query, hits: sample.results })),
       embeddingModel: report.embeddingModel,
     });
+  });
+
+  app.get('/api/servers/:slug/stats', async (c) => {
+    const slug = c.req.param('slug');
+    const days = parseInt(c.req.query('days') || '30', 10) || 30;
+    const report = await getStatsReport(slug, days);
+    return c.json(report || { slug, days, total: 0, message: 'No audit log yet.' });
   });
 
   // Playground search (uses RAG directly for demo)

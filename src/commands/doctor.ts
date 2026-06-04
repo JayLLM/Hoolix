@@ -6,6 +6,7 @@ import { loadConfig } from '../core/config.js';
 import { listServers } from '../core/registry.js';
 import { getServerDataDir } from '../core/paths.js';
 import { listTemplates } from '../app/services/catalog.js';
+import { listSourcePlugins } from '../sources/plugins.js';
 import { printTitle, printCommand, printDetails, printJson, ui } from '../ui/format.js';
 
 export async function cmdDoctor(json: boolean): Promise<void> {
@@ -72,6 +73,14 @@ export async function cmdDoctor(json: boolean): Promise<void> {
     checks.push({ name: 'template-catalog', ok: templates.length > 0, detail: `${templates.length} template(s)` });
   } catch (e: any) {
     checks.push({ name: 'template-catalog', ok: false, detail: e.message || String(e) });
+  }
+
+  try {
+    const plugins = await listSourcePlugins();
+    results.sourcePlugins = { count: plugins.length, ids: plugins.map((plugin) => plugin.id) };
+    checks.push({ name: 'source-plugins', ok: true, detail: `${plugins.length} custom provider(s)` });
+  } catch (e: any) {
+    checks.push({ name: 'source-plugins', ok: false, detail: e.message || String(e) });
   }
 
   let netOk = false;

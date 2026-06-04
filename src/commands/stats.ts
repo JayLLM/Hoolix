@@ -3,6 +3,7 @@ import fs from 'fs-extra';
 import { getServerMetadata } from '../core/registry.js';
 import { logger } from '../core/logger.js';
 import { getServerDataDir } from '../core/paths.js';
+import { getStatsReport } from '../app/services/analytics.js';
 import {
   printTitle, printSection, printDetails, printJson, ui,
   type TableRow,
@@ -54,7 +55,7 @@ export async function cmdStats(args: string[], json: boolean): Promise<void> {
     raw = await fs.readFile(auditPath, 'utf8');
   } catch {
     if (json) {
-      printJson({ slug, days, entries: [], message: 'No audit log yet.' });
+      printJson({ slug, days, total: 0, entries: [], message: 'No audit log yet.' });
     } else {
       printTitle('Stats', `${meta.name} (${slug})`);
       console.log(`  No audit log yet — start the server and let agents query it.`);
@@ -140,30 +141,12 @@ export async function cmdStats(args: string[], json: boolean): Promise<void> {
   }
 
   const avgHits = searchCount > 0 ? Math.round((hitsTotal / searchCount) * 10) / 10 : 0;
-  const firstEntry = allEntries[0]?.ts || null;
   const lastEntry  = allEntries[allEntries.length - 1]?.ts || null;
 
   // ── JSON output ──────────────────────────────────────────────────────────
   if (json) {
-    printJson({
-      slug,
-      name:      meta.name,
-      days,
-      since,
-      total,
-      byTool,
-      topQueries: topQueries.map(([q, n]) => ({ query: q, count: n })),
-      topPages:   topPages.map(([p, n]) => ({ page: p, count: n })),
-      health: {
-        avgHitsPerSearch: avgHits,
-        zeroHitSearches:  zeroHits,
-        rateLimitEvents:  rateLimited,
-        toolErrors,
-      },
-      dailyActivity: last7Days,
-      firstActivity: firstEntry,
-      lastActivity:  lastEntry,
-    });
+    const report = await getStatsReport(slug, days);
+    printJson(report || { slug, days, entries: [], message: 'No audit log yet.' });
     return;
   }
 
@@ -239,6 +222,20 @@ export async function cmdStats(args: string[], json: boolean): Promise<void> {
     ['Tool errors',         toolErrors > 0 ? ui.warning(String(toolErrors)) : ui.success('0')],
   ]);
   console.log('');
+
+  const report = await getStatsReport(slug, days);
+  if (report && Object.keys(report.byTransport).length > 0) {
+    printSection('Transport mix');
+    for (const [transport, count] of Object.entries(report.byTransport)) {
+      console.log(`  ${transport.padEnd(8)} ${String(count).padStart(5)}  ${ui.muted(pct(count, total))}`);
+    }
+    console.log('');
+    printSection('Read health');
+    printDetails([
+      ['Read success rate', `${report.health.readSuccessRate}%`],
+    ]);
+    console.log('');
+  }
 
   // Activity chart (last 7 days)
   printSection('Activity — last 7 days');

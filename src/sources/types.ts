@@ -36,6 +36,14 @@ export const SourceDefinitionSchema = z.discriminatedUnion('type', [
     headers: z.record(z.string(), z.string()).optional(),
     cookie: z.string().min(1).optional(),
   }),
+  z.object({
+    type: z.literal('custom'),
+    provider: z.string().regex(/^[a-z0-9-]{1,64}$/),
+    value: z.string().min(1),
+    label: z.string().min(1).optional(),
+    headers: z.record(z.string(), z.string()).optional(),
+    cookie: z.string().min(1).optional(),
+  }),
 ]);
 
 export type SourceDefinition = z.infer<typeof SourceDefinitionSchema>;
