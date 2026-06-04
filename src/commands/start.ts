@@ -13,29 +13,103 @@ export async function cmdStart(args: string[], json: boolean): Promise<void> {
     process.exit(1);
   }
 
-  // ── mcp-server kind: config-only in Phase 1 ──────────────────────────────
-  // These servers are spawned by the client — no Hoolix HTTP host needed.
+  // ── mcp-server kind: proxy mode or helpful redirect ──────────────────────
   const metaEarly = await getServerMetadata(slug).catch(() => null);
   if (metaEarly?.serverKind === 'mcp-server') {
     const templateId = metaEarly.definition?.template?.id ?? 'unknown';
-    if (json) {
-      printJson({
-        ok:       false,
-        kind:     'mcp-server',
-        slug,
-        error:    `"${metaEarly.name}" uses stdio transport (${templateId}). Your MCP client spawns the process — no Hoolix host is needed.`,
-        next:     `hoolix connect ${slug}`,
-      });
-    } else {
-      printTitle('Stdio server', `"${metaEarly.name}" (${templateId})`);
-      console.log(`  ${ui.accent('○')} This server uses ${ui.accent('stdio transport')} — your MCP client spawns it on demand.`);
-      console.log(`  ${ui.muted('No Hoolix host process is needed.')}`);
-      console.log('');
-      printSection('Wire it into your client');
-      printCommand(`hoolix connect ${slug}`);
-      printCommand(`hoolix connect ${slug} --client claude-code --yes`);
+    const isProxy = args.includes('--proxy');
+
+    if (!isProxy) {
+      // Default: explain stdio model and direct user to connect or --proxy
+      if (json) {
+        printJson({
+          ok:       false,
+          kind:     'mcp-server',
+          slug,
+          error:    `"${metaEarly.name}" uses stdio transport (${templateId}). Your MCP client spawns the process — no Hoolix host is needed.`,
+          next:     [`hoolix connect ${slug}`, `hoolix start ${slug} --proxy  (wrap behind HTTP for sharing/remote access)`],
+        });
+      } else {
+        printTitle('Stdio server', `"${metaEarly.name}" (${templateId})`);
+        console.log(`  ${ui.accent('○')} This server uses ${ui.accent('stdio transport')} — your MCP client spawns it on demand.`);
+        console.log(`  ${ui.muted('No Hoolix host process is needed.')}`);
+        console.log('');
+        printSection('Wire it into your client');
+        printCommand(`hoolix connect ${slug}`);
+        printCommand(`hoolix connect ${slug} --client claude-code --yes`);
+        console.log('');
+        console.log(`  ${ui.muted('Proxy mode:')} hoolix start ${slug} --proxy   ${ui.muted('(wrap behind HTTP for sharing / remote access)')}`);
+      }
+      process.exit(0);
     }
-    process.exit(0);
+
+    // ── Proxy mode: spawn proxy-host wrapping the stdio server ──────────────
+    const portIdx = args.indexOf('--port');
+    const port    = parseInt(args[portIdx + 1] || '0', 10) || (3456 + Math.floor(Math.random() * 400));
+    const authKey = (metaEarly as any).authKey;
+
+    if (!json) printTitle('Starting proxy', `Wrapping "${metaEarly.name}" behind HTTP`);
+
+    try {
+      const { port: actualPort, pid } = await serverManager.startProxied(slug, { port, authKey });
+
+      if (json) {
+        printJson({
+          ok:        true,
+          slug,
+          name:      metaEarly.name,
+          transport: 'proxy',
+          mode:      'proxy',
+          url:       `http://127.0.0.1:${actualPort}/mcp`,
+          port:      actualPort,
+          pid,
+          mcpServers: {
+            [slug]: {
+              type:    'streamable-http',
+              url:     `http://127.0.0.1:${actualPort}/mcp`,
+              headers: { Authorization: `Bearer ${authKey}` },
+            },
+          },
+          next: [`hoolix connect ${slug} --client cursor --yes`, `hoolix info ${slug}`],
+        });
+        return;
+      }
+
+      printTitle('Proxy running', `"${metaEarly.name}" is accessible via HTTP.`);
+      printDetails([
+        ['Mode',      'Proxy (stdio → HTTP)'],
+        ['Template',  templateId],
+        ['URL',       `http://127.0.0.1:${actualPort}/mcp`],
+        ['Auth',      `Authorization: Bearer ${authKey}`],
+        ['PID',       pid],
+      ]);
+      console.log('');
+      printSection('Client config (streamable-http)');
+      console.log(JSON.stringify({
+        mcpServers: {
+          [slug]: {
+            type:    'streamable-http',
+            url:     `http://127.0.0.1:${actualPort}/mcp`,
+            headers: { Authorization: `Bearer ${authKey}` },
+          },
+        },
+      }, null, 2));
+      console.log('');
+      printSection('Next steps');
+      printCommand(`hoolix connect ${slug} --client cursor --yes`);
+      printCommand(`curl -s http://127.0.0.1:${actualPort}/health`);
+      console.log(`  ${ui.muted('Tip:')} hoolix stop ${slug}   (stops the proxy process)`);
+    } catch (err: any) {
+      if (json) {
+        printJson({ ok: false, slug, error: err.message || String(err), next: `Run hoolix doctor --json, then retry.` });
+        process.exit(1);
+      }
+      logger.warn('Could not start proxy host:', err.message);
+      console.log('');
+      printSection('Fallback: wire via stdio instead');
+      printCommand(`hoolix connect ${slug}`);
+    }
+    return;
   }
 
   // ── stdio transport path ─────────────────────────────────────────────────

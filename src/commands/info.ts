@@ -79,11 +79,19 @@ async function renderMcpServerInfo(slug: string, meta: any, status: any): Promis
   const templateId = meta.definition?.template?.id ?? 'unknown';
   const templateInputs: Record<string, string> = meta.definition?.template?.inputs ?? {};
 
+  const isProxied = status.running && (status as any).mode === 'proxy';
+  const statusLabel = isProxied
+    ? `${ui.success('running')} (proxy on :${status.port})`
+    : status.running
+      ? ui.success('running')
+      : ui.muted('stopped (use connect or --proxy)');
+
   printTitle('Server Info', `${meta.name} (${meta.slug})`);
   printDetails([
     ['Kind',      'MCP server'],
     ['Template',  meta.definition?.template ? `${meta.definition.template.name} (${templateId})` : templateId],
-    ['Status',    status.running ? ui.success('running') : ui.muted('stopped (use connect)')],
+    ['Status',    statusLabel],
+    ...(isProxied ? [['Proxy URL', `http://127.0.0.1:${status.port}/mcp`] as [string, string]] : []),
     ['Created',   new Date(meta.createdAt).toLocaleString()],
   ]);
   console.log('');
@@ -143,7 +151,14 @@ async function renderMcpServerInfo(slug: string, meta: any, status: any): Promis
   }
 
   printSection('Next');
-  printCommand(`hoolix connect ${slug}`);
-  console.log(`  ${ui.muted('Your client will spawn the process automatically (stdio transport).')}`);
+  if (isProxied) {
+    printCommand(`hoolix connect ${slug}`);
+    printCommand(`hoolix stop ${slug}`);
+    console.log(`  ${ui.muted('Connect now emits HTTP config (proxy is running).')}`);
+  } else {
+    printCommand(`hoolix connect ${slug}`);
+    console.log(`  ${ui.muted('Your client will spawn the process automatically (stdio transport).')}`);
+    console.log(`  ${ui.muted('Proxy mode:')} hoolix start ${slug} --proxy   ${ui.muted('(wrap behind HTTP for sharing / remote access)')}`);
+  }
   console.log('');
 }

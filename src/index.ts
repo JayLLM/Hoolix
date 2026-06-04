@@ -20,9 +20,10 @@ import { VERSION } from './core/version.js';
 // Re-export for backwards compatibility (host.ts and tests may import this)
 export { generateAuthKey } from './lib/auth.js';
 
-// Static import keeps the bundler happy when building a self-contained binary.
-// host.ts is still only executed when the __internal-host flag is present.
+// Static imports keep the bundler happy when building a self-contained binary.
+// These modules are only executed when the corresponding __internal-* flag is present.
 import { startHostedServer, type HostOptions } from './mcp/host.js';
+import { startProxyHost, type ProxyHostOptions } from './mcp/proxy-host.js';
 
 async function main() {
   const args      = process.argv.slice(2);
@@ -33,7 +34,7 @@ async function main() {
   await loadConfig();
 
   // Background update check — non-blocking, best-effort, suppressed in --json mode.
-  if (!jsonOutput && cmd !== 'update' && cmd !== '__internal-host' && process.env.MCP_PORTAL_SKIP_UPDATE_CHECK !== '1') {
+  if (!jsonOutput && cmd !== 'update' && cmd !== '__internal-host' && cmd !== '__internal-proxy' && process.env.MCP_PORTAL_SKIP_UPDATE_CHECK !== '1') {
     checkForUpdate().then((info) => {
       if (info.isOutdated) {
         logger.warn(`A new version of hoolix is available: ${info.latestVersion} (you have ${info.currentVersion})`);
@@ -185,9 +186,13 @@ async function main() {
       return;
     }
 
-    // ── Internal host mode (binary self-spawn — never call directly) ───────
+    // ── Internal host/proxy mode (binary self-spawn — never call directly) ──
     case '__internal-host':
       await runInternalHost(args);
+      return;
+
+    case '__internal-proxy':
+      await runInternalProxy(args);
       return;
 
     // ── TUI (default when no command given) ───────────────────────────────
@@ -244,6 +249,25 @@ async function runInternalHost(args: string[]) {
 
   const options: HostOptions = { slug, port: parseInt(portStr, 10), dataDir, authKey };
   await startHostedServer(options);
+}
+
+async function runInternalProxy(args: string[]) {
+  const getArg = (name: string) => {
+    const idx = args.indexOf(`--${name}`);
+    return idx !== -1 ? args[idx + 1] : undefined;
+  };
+
+  const slug    = getArg('slug');
+  const portStr = getArg('port');
+  const authKey = getArg('auth-key');
+
+  if (!slug || !portStr || !authKey) {
+    console.error('Internal proxy mode requires --slug, --port, --auth-key');
+    process.exit(1);
+  }
+
+  const options: ProxyHostOptions = { slug, port: parseInt(portStr, 10), authKey };
+  await startProxyHost(options);
 }
 
 async function launchDashboardPlaceholder() {

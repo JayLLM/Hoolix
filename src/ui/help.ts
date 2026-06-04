@@ -18,7 +18,7 @@ ${chalk.bold('Server management')}
   ${ui.accent('delete')} <slug>         Remove server and data (--yes, --json)
 
 ${chalk.bold('Lifecycle')}
-  ${ui.accent('start')} <slug>          Start MCP hosting (--port, --transport http|stdio, --json)
+  ${ui.accent('start')} <slug>          Start MCP hosting (--port, --transport http|stdio, --proxy for mcp-server, --json)
   ${ui.accent('stop')} <slug>           Stop a running server (--json)
   ${ui.accent('reindex')} <slug>        Refresh sources and rebuild RAG index (docs-rag only; --force, --schedule, --due)
   ${ui.accent('verify')} <slug>         Check health, grounding, and retrieval quality (--json)
@@ -51,6 +51,7 @@ ${chalk.bold('System')}
 ${chalk.bold('Examples — MCP server templates (new)')}
   ${ui.accent('›')} hoolix templates list
   ${ui.accent('›')} hoolix templates info filesystem
+  ${ui.accent('›')} hoolix start my-github --proxy           (wrap mcp-server behind HTTP for sharing / remote)
   ${ui.accent('›')} hoolix install filesystem /Users/jay/projects --yes
   ${ui.accent('›')} hoolix install github-api --yes            (credentials prompted interactively)
   ${ui.accent('›')} hoolix install memory --name "My Memory" --yes

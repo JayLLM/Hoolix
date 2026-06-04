@@ -18,6 +18,7 @@ export interface ServerStatus {
   pid?: number;
   port?: number;
   startedAt?: string;
+  mode?: 'http' | 'proxy';
 }
 
 export interface HostSpawnPlanInput {
@@ -105,6 +106,50 @@ export function buildHostSpawnPlan(input: HostSpawnPlanInput): HostSpawnPlan {
   };
 }
 
+export interface ProxySpawnPlan {
+  command: string;
+  args: string[];
+  mode: 'binary' | 'dev-tsx-bin' | 'dev-node-import';
+}
+
+export function buildProxySpawnPlan(input: {
+  slug: string;
+  port: number;
+  authKey: string;
+  execPath?: string;
+  platform?: NodeJS.Platform;
+  cwd?: string;
+  tsxExists?: boolean;
+}): ProxySpawnPlan {
+  const currentBin = input.execPath || process.execPath;
+  const isNodeOrBun = currentBin.includes('node') || currentBin.includes('bun');
+  const root = input.cwd || process.cwd();
+  const proxyScript = path.resolve(root, 'src/mcp/proxy-host.ts');
+
+  const proxyArgs = [
+    '--slug',     input.slug,
+    '--port',     String(input.port),
+    '--auth-key', input.authKey,
+  ];
+
+  if (!isNodeOrBun) {
+    return { command: currentBin, args: ['__internal-proxy', ...proxyArgs], mode: 'binary' };
+  }
+
+  const platform = input.platform || process.platform;
+  if (platform === 'win32') {
+    return { command: currentBin, args: ['--import', 'tsx', proxyScript, ...proxyArgs], mode: 'dev-node-import' };
+  }
+
+  const tsxBin = path.resolve(root, 'node_modules', '.bin', 'tsx');
+  const tsxExists = input.tsxExists ?? fs.pathExistsSync(tsxBin);
+  if (tsxExists) {
+    return { command: tsxBin, args: [proxyScript, ...proxyArgs], mode: 'dev-tsx-bin' };
+  }
+
+  return { command: currentBin, args: ['--import', 'tsx', proxyScript, ...proxyArgs], mode: 'dev-node-import' };
+}
+
 export class ServerManager {
   /**
    * Start a server by spawning the MCP host (binary or dev tsx path).
@@ -181,6 +226,61 @@ export class ServerManager {
     return { port, authKey, pid };
   }
 
+  /**
+   * Start an mcp-server in proxy mode: spawns proxy-host.ts which bridges the
+   * underlying stdio server to an authenticated HTTP endpoint.
+   */
+  async startProxied(slug: string, opts: StartOptions = {}): Promise<{ port: number; authKey: string; pid: number }> {
+    const runtimePath = getServerRuntimePath(slug);
+
+    // Re-use if already running (any mode — caller decides whether to stop first)
+    const existing = await this.getStatus(slug);
+    if (existing.running && existing.port && existing.pid) {
+      const meta = await this.getMetadata(slug);
+      return { port: existing.port, authKey: meta.authKey, pid: existing.pid };
+    }
+
+    const meta = await this.getMetadata(slug);
+    const port = opts.port || await this.findFreePort(BASE_PORT + Math.floor(Math.random() * 400));
+    const authKey = opts.authKey || meta.authKey;
+    const hostLogPath = path.join(getServerDir(slug), 'host.log');
+
+    logger.info(`Spawning proxy host for "${slug}" on port ${port}...`);
+
+    await fs.writeJson(runtimePath, { pid: -1, port, startedAt: new Date().toISOString(), status: 'starting', mode: 'proxy' }, { spaces: 2 });
+
+    const spawnPlan = buildProxySpawnPlan({ slug, port, authKey });
+
+    await fs.ensureFile(hostLogPath);
+    await fs.appendFile(hostLogPath, `\n--- ${new Date().toISOString()} proxy-spawn ${slug} on :${port} ---\n`);
+    const logFd = fs.openSync(hostLogPath, 'a');
+
+    const child = spawn(spawnPlan.command, spawnPlan.args, {
+      stdio: ['ignore', logFd, logFd],
+      detached: opts.detach ?? true,
+      env: { ...process.env, MCP_PORTAL_LOG_LEVEL: process.env.MCP_PORTAL_LOG_LEVEL || 'info' },
+    });
+    fs.closeSync(logFd);
+
+    child.on('exit', (code, signal) => {
+      if (code !== 0) logger.error(`Proxy host for ${slug} exited (code=${code}, signal=${signal})`);
+    });
+
+    const probeOk = await this.waitForHttpHealth(port, 20000);
+    if (!probeOk) {
+      try { treeKill(child.pid!, 'SIGKILL'); } catch {}
+      await fs.remove(runtimePath).catch(() => {});
+      const tail = await this.readLogTail(hostLogPath);
+      throw new Error(`Failed to start proxy for "${slug}" — health check on :${port} timed out.\nRecent logs:\n${tail}`);
+    }
+
+    const pid = child.pid!;
+    await fs.writeJson(runtimePath, { pid, port, startedAt: new Date().toISOString(), status: 'running', mode: 'proxy' }, { spaces: 2 });
+
+    child.unref();
+    return { port, authKey, pid };
+  }
+
   async stop(slug: string, force = false): Promise<boolean> {
     const runtimePath = getServerRuntimePath(slug);
     const status = await this.getStatus(slug);
@@ -220,6 +320,7 @@ export class ServerManager {
         pid: data.pid,
         port: data.port,
         startedAt: data.startedAt,
+        mode: (data.mode === 'proxy' ? 'proxy' : 'http') as 'http' | 'proxy',
       };
     } catch {
       await fs.remove(runtimePath).catch(() => {});

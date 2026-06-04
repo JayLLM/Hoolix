@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Proxy mode** (`hoolix start <slug> --proxy`) — wraps any `mcp-server` kind server behind an authenticated Hono HTTP endpoint, using the same auth, rate-limiting, and audit middleware as the docs-rag host. Enables sharing the same underlying server across multiple AI clients and remote access.
+  - New `src/mcp/proxy-host.ts`: spawns the child stdio MCP server process, bridges synchronous JSON-RPC request/response over HTTP (batch + notifications supported). Writes `.runtime.json` with `mode: 'proxy'`.
+  - `ServerStatus.mode` — new field (`'http' | 'proxy'`) surfaced by `ServerManager.getStatus()` from the runtime file.
+  - `ServerManager.startProxied(slug, opts)` — new method following the same `buildProxySpawnPlan` + health-probe pattern as `start()`.
+  - `__internal-proxy` binary dispatch — follows the `__internal-host` model for self-contained binary execution.
+  - `hoolix connect <slug>` — automatically prefers HTTP config when the server is running in proxy mode.
+  - `hoolix info <slug>` — shows "running (proxy on :PORT)" status and "Proxy URL" field when proxied; updated "Next" section with proxy-aware commands.
+  - `hoolix start <slug>` without `--proxy` now also mentions proxy as an option in the stdio redirect message.
+
 ## [0.0.1-beta.15] - 2026-06-04
 
 ### Added

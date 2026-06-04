@@ -325,39 +325,44 @@ export async function cmdConnect(args: string[], json: boolean): Promise<void> {
   let transport: 'stdio' | 'http';
 
   if (serverKind === 'mcp-server') {
-    // Config-only: load credentials + interpolate into the template's run config
-    const templateId = meta.definition?.template?.id;
-    if (!templateId) {
-      logger.error(`Server "${slug}" has no template ID in its definition. Next: delete and recreate with a supported template.`);
-      process.exit(1);
+    // If the server is running in proxy mode, use HTTP config (same as docs-rag)
+    const proxyStatus = await serverManager.getStatus(slug);
+    if (proxyStatus.running && proxyStatus.mode === 'proxy' && proxyStatus.port) {
+      transport = 'http';
+      mcpEntry  = buildHttpEntry(meta.authKey, proxyStatus.port);
+    } else {
+      // Config-only: load credentials + interpolate into the template's run config
+      const templateId = meta.definition?.template?.id;
+      if (!templateId) {
+        logger.error(`Server "${slug}" has no template ID in its definition. Next: delete and recreate with a supported template.`);
+        process.exit(1);
+      }
+
+      let template: Awaited<ReturnType<typeof getTemplate>> | null = null;
+      try {
+        template = await getTemplate(templateId);
+      } catch {
+        logger.error(`Template "${templateId}" not found. Next: run "hoolix templates list".`);
+        process.exit(1);
+      }
+
+      if (!template!.server) {
+        logger.error(`Template "${templateId}" has no server run config. Next: check template definition.`);
+        process.exit(1);
+      }
+
+      const credentials = await loadCredentials(slug);
+      const templateInputs = meta.definition?.template?.inputs ?? {};
+      const substitutions: Record<string, string> = { ...templateInputs, ...credentials };
+      const interpolated = interpolateRunConfig(template!.server, substitutions);
+
+      if (hasUnresolvedPlaceholders(interpolated)) {
+        logger.warn(`Some placeholders in the run config could not be resolved. Credentials may be missing — check: hoolix info ${slug}`);
+      }
+
+      transport = template!.server.transport ?? 'stdio';
+      mcpEntry = buildStdioEntry(client as ClientId, interpolated);
     }
-
-    let template: Awaited<ReturnType<typeof getTemplate>> | null = null;
-    try {
-      template = await getTemplate(templateId);
-    } catch {
-      logger.error(`Template "${templateId}" not found. Next: run "hoolix templates list".`);
-      process.exit(1);
-    }
-
-    if (!template!.server) {
-      logger.error(`Template "${templateId}" has no server run config. Next: check template definition.`);
-      process.exit(1);
-    }
-
-    // Load credentials and template inputs (non-sensitive)
-    const credentials = await loadCredentials(slug);
-    const templateInputs = meta.definition?.template?.inputs ?? {};
-    const substitutions: Record<string, string> = { ...templateInputs, ...credentials };
-
-    const interpolated = interpolateRunConfig(template!.server, substitutions);
-
-    if (hasUnresolvedPlaceholders(interpolated)) {
-      logger.warn(`Some placeholders in the run config could not be resolved. Credentials may be missing — check: hoolix info ${slug}`);
-    }
-
-    transport = template!.server.transport ?? 'stdio';
-    mcpEntry = buildStdioEntry(client as ClientId, interpolated);
 
   } else {
     // docs-rag: existing HTTP streamable flow

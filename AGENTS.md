@@ -153,6 +153,14 @@ Templates are typed as `kind: 'docs-rag'` or `kind: 'mcp-server'`. The kind dete
 - `verify` checks credentials present + runtime tool available; no RAG checks.
 - Registry: `serverKind: 'mcp-server'`, `credentialKeys: string[]`, `chunkCount: 0`.
 
+**`mcp-server` proxy mode** (Phase 2+, opt-in):
+- `hoolix start <slug> --proxy` spawns `proxy-host.ts` as a detached process (same `__internal-proxy` model as `__internal-host`).
+- Proxy host spawns the child stdio server, bridges it to Hono HTTP with auth + rate-limit + audit.
+- `.runtime.json` gains `mode: 'proxy'` — `getStatus()` returns `mode: 'http' | 'proxy'`.
+- `hoolix connect` checks proxy status: if `mode === 'proxy'`, emits HTTP config; otherwise emits stdio config.
+- Runtime file format: `{ pid, port, startedAt, status, mode: 'proxy', childPid, template }`.
+- Phase 1 limitation: no SSE streaming responses (synchronous JSON-RPC request/response only).
+
 **Rules**:
 - Never run the ingestion pipeline for `mcp-server` kind.
 - Never put credential values in metadata.json — store key names only (`credentialKeys[]`).
