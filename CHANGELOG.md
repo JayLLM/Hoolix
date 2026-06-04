@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.1-beta.17] - 2026-06-04
+
 ### Added
 
 - **Shell completions** (`hoolix completion bash|zsh|fish|powershell`) — generates ready-to-source tab-completion scripts. Dynamic slug and template ID completion via `hoolix list --json` and `hoolix templates list --json`. Update check suppressed during completion output.
@@ -235,7 +237,8 @@ App currently hangs during github workflow. Will be investigated later.
 - Added optional hybrid RAG with lazy BGE embedding + RRF reranker behind `--hybrid` / `--embedding-model`.
 - Added one-command client wiring for Claude/Cursor/Windsurf/Continue/Cline/GrokBuild and `--json` scripting support.
 
-[Unreleased]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.16...HEAD
+[Unreleased]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.17...HEAD
+[0.0.1-beta.17]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.16...v0.0.1-beta.17
 [0.0.1-beta.16]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.15...v0.0.1-beta.16
 [0.0.1-beta.15]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.14...v0.0.1-beta.15
 [0.0.1-beta.14]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.13...v0.0.1-beta.14
