@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.1-beta.14] - 2026-06-04
+
 ### Added
 
 - **Community template loader** (`src/catalog/community.ts`) — reads and validates `*.json` files from `~/.hoolix/templates/` (or `HOOLIX_TEMPLATE_DIR` env var override) against `CatalogTemplateSchema`. Invalid files emit `logger.warn` and are skipped; they never crash the CLI. Follows the exact `source-plugins.ts` pattern.
@@ -192,7 +194,8 @@ App currently hangs during github workflow. Will be investigated later.
 - Added optional hybrid RAG with lazy BGE embedding + RRF reranker behind `--hybrid` / `--embedding-model`.
 - Added one-command client wiring for Claude/Cursor/Windsurf/Continue/Cline/GrokBuild and `--json` scripting support.
 
-[Unreleased]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.13...HEAD
+[Unreleased]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.14...HEAD
+[0.0.1-beta.14]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.13...v0.0.1-beta.14
 [0.0.1-beta.13]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.12...v0.0.1-beta.13
 [0.0.1-beta.12]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.11...v0.0.1-beta.12
 [0.0.1-beta.11]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.10...v0.0.1-beta.11
