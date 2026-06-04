@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+Workflow removes macos13 due to github runners no longer working.
+
 ## [0.0.1-beta.18] - 2026-06-04
 
 ### Fixed

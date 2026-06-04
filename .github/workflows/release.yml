@@ -107,12 +107,6 @@ jobs:
             arch: arm64
             binary-name: hoolix-darwin-arm64
             ext: ''
-          # macOS Intel (x64) — comment out if macos-13 runners are unavailable
-          - runner: macos-13
-            os: darwin
-            arch: x64
-            binary-name: hoolix-darwin-x64
-            ext: ''
           # Windows x64
           - runner: windows-latest
             os: windows
