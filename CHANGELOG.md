@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.1-beta.13] - 2026-06-04
+
 ### Added
 
 - **`hoolix secrets` command family** — credential rotation for `mcp-server` kind servers without deleting/recreating them. Three sub-commands: `secrets list <slug>` (shows masked keys with template labels and env-var hints), `secrets set <slug> <key> [value]` (adds or replaces a credential; prompts with masked input if value omitted; supports `--value`, `--yes`, `--json`), `secrets remove <slug> <key>` (deletes a key with confirmation; warns if removing a required credential). Both singular (`secret`) and plural (`secrets`) aliases accepted.
@@ -176,7 +178,8 @@ App currently hangs during github workflow. Will be investigated later.
 - Added optional hybrid RAG with lazy BGE embedding + RRF reranker behind `--hybrid` / `--embedding-model`.
 - Added one-command client wiring for Claude/Cursor/Windsurf/Continue/Cline/GrokBuild and `--json` scripting support.
 
-[Unreleased]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.12...HEAD
+[Unreleased]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.13...HEAD
+[0.0.1-beta.13]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.12...v0.0.1-beta.13
 [0.0.1-beta.12]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.11...v0.0.1-beta.12
 [0.0.1-beta.11]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.10...v0.0.1-beta.11
 [0.0.1-beta.10]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.9...v0.0.1-beta.10
