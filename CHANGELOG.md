@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Phase 1: MCP server platform — two-kind template system** — `CatalogTemplateSchema` gains `kind` (`'docs-rag'` | `'mcp-server'`), `server: ServerRunConfigSchema` (command/args/env with `{input}` and `{credential}` interpolation), `credentials: CredentialInputSchema[]`, and `homepage`. All existing templates now carry `kind: 'docs-rag'` explicitly. Fully backward compatible — existing servers parse unchanged.
+- **5 new official `mcp-server` templates**: `filesystem` (`@modelcontextprotocol/server-filesystem`, prompted path), `github-api` (`@modelcontextprotocol/server-github`, `GITHUB_TOKEN`), `postgres` (`@modelcontextprotocol/server-postgres`, `DATABASE_URL`), `sqlite` (`uvx mcp-server-sqlite`, prompted path), `memory` (`@modelcontextprotocol/server-memory`, no credentials). Total official templates: 9.
+- **Credential service** — `src/app/services/credentials.ts`: `saveCredentials()` / `loadCredentials()` store sensitive values in a separate `credentials.json` per server with `0600` permissions (never in `metadata.json`). `promptCredentials()` auto-detects from `envVar` (e.g. `GITHUB_TOKEN`) before prompting, supports `nonInteractive` mode for scripted usage. `interpolateRunConfig()` substitutes `{name}` placeholders in command args and env. `maskCredentials()` redacts sensitive values for display.
+- **`hoolix create` mcp-server flow**: detects template kind after lookup; prompts for non-sensitive inputs (`--input key=value`) and sensitive credentials (`--credential key=value`; `--env-file .env`); shows masked credentials in the post-create summary; skips ingestion spinner entirely for `mcp-server` kind.
+- **`hoolix install <template>`** — alias for `hoolix create --template <id>` added to the CLI dispatcher and help text.
+- **`ServerMetadataSchema`** gains `serverKind` (default `'docs-rag'`) and `credentialKeys` (list of credential key names, not values). Existing metadata parses without migration.
+- **`CredentialMissingError`** added to `src/core/errors.ts`.
+- **`getServerCredentialsPath()`** added to `src/core/paths.ts`.
+
+### Changed
+
+- `createServer()` in `app/services/servers.ts` forks before ingestion: `mcp-server` kind calls `createMcpServerEntry()` (stores credentials, registers metadata, returns empty ingestion result); `docs-rag` kind is completely unchanged.
+- `ServerDefinitionSchema.sources` relaxed from `.min(1)` to `.default([])` to allow `mcp-server` kind definitions with no sources. Docs-rag validation is enforced at the service layer.
+- `src/commands/import.ts` updated to supply `serverKind` and `credentialKeys` defaults when importing legacy bundles.
+- Help text updated to reflect both template kinds, new commands, and mcp-server examples.
+
 ## [0.0.1-beta.10] - 2026-06-04
 
 ### Changed

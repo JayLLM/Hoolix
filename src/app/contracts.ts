@@ -12,6 +12,8 @@ export interface CreateServerInput {
   sources?: SourceDefinition[];
   definition?: ServerDefinition;
   templateId?: string;
+  templateInputs?: Record<string, string>;  // non-sensitive inputs (e.g. allowedPath, dbPath)
+  credentials?: Record<string, string>;     // sensitive credentials stored in credentials.json
   embeddingModel: EmbeddingModel;
   maxChunks?: number;
   maxPages?: number;

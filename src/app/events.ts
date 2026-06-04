@@ -4,6 +4,7 @@ export type AppProgressStage =
   | IngestionProgress['stage']
   | 'index'
   | 'register'
+  | 'credential'
   | 'delete'
   | 'verify'
   | 'done';

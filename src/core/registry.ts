@@ -34,6 +34,8 @@ export const ServerMetadataSchema = z.object({
   lastStartedAt: z.string().datetime().optional(),
   authKey: z.string().min(16), // crypto-generated at create; only returned at start time
   desiredState: z.enum(['running', 'stopped']).default('stopped'),
+  serverKind: z.enum(['docs-rag', 'mcp-server']).default('docs-rag'),
+  credentialKeys: z.array(z.string()).default([]), // names of stored credentials (values in credentials.json)
   definition: ServerDefinitionSchema.optional(),
   sourceFingerprint: z.string().optional(),
   lastReindexAt: z.string().datetime().optional(),

@@ -64,3 +64,7 @@ export function getServerDataDir(slug: string): string {
 export function getServerRuntimePath(slug: string): string {
   return path.join(getServerDir(slug), '.runtime.json');
 }
+
+export function getServerCredentialsPath(slug: string): string {
+  return path.join(getServerDir(slug), 'credentials.json');
+}

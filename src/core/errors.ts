@@ -44,6 +44,16 @@ export class ProcessError extends MCPPError {
   }
 }
 
+export class CredentialMissingError extends MCPPError {
+  constructor(credentialName: string, envVar?: string) {
+    const hint = envVar
+      ? ` Set ${envVar} or pass --credential ${credentialName}=<value>.`
+      : ` Pass --credential ${credentialName}=<value>.`;
+    super(`Required credential "${credentialName}" is missing.${hint}`, 'CREDENTIAL_MISSING', { credentialName, envVar });
+    this.name = 'CredentialMissingError';
+  }
+}
+
 export function isMCPPError(err: unknown): err is MCPPError {
   return err instanceof MCPPError;
 }

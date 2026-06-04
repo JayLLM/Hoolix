@@ -45,12 +45,37 @@ import {
 } from '../../sources/registry.js';
 import { ServerDefinitionSchema, type ServerDefinition } from '../../sources/types.js';
 import { resolveCustomSource } from '../../sources/plugins.js';
+import { getTemplateKind } from '../../catalog/templates.js';
+import { saveCredentials } from './credentials.js';
 
 const DEFAULT_MAX_CHUNKS = 6000;
 const DEFAULT_MAX_PAGES = 80;
 
 function indexLabel(embeddingModel: EmbeddingModel): string {
   return isHybridModel(embeddingModel) ? `Hybrid (${embeddingModel})` : 'Fuse.js';
+}
+
+function resolveTemplateKind(definition: ServerDefinition): 'docs-rag' | 'mcp-server' {
+  if (!definition.template?.id) return 'docs-rag';
+  return getTemplateKind(definition.template.id);
+}
+
+function makeEmptyIngestionResult(templateId: string): IngestionResult {
+  return {
+    sourceUrl: `mcp-server:${templateId}`,
+    sourceType: 'manual',
+    title: templateId,
+    chunks: [],
+    stats: {
+      totalChunks: 0,
+      totalChars: 0,
+      pagesProcessed: 0,
+      durationMs: 0,
+      truncated: false,
+      maxChunks: 0,
+      maxPages: 0,
+    },
+  };
 }
 
 function likelyTruncated(meta: ServerMetadata): boolean {
@@ -212,9 +237,16 @@ async function resolveDefinitionSources(definition: ServerDefinition): Promise<S
 
 export async function createServer(input: CreateServerInput): Promise<CreateServerResult> {
   const slug = slugify(input.name);
+  const definition = resolveCreateDefinition(input);
+
+  // mcp-server kind: skip ingestion entirely — store config + credentials only
+  if (resolveTemplateKind(definition) === 'mcp-server') {
+    return createMcpServerEntry(input, slug, definition);
+  }
+
+  // docs-rag kind (existing path — unchanged)
   const maxChunks = input.maxChunks ?? DEFAULT_MAX_CHUNKS;
   const maxPages = input.maxPages ?? DEFAULT_MAX_PAGES;
-  const definition = resolveCreateDefinition(input);
 
   const ingestion = await ingestDefinition(definition, {
     maxChunks,
@@ -243,6 +275,8 @@ export async function createServer(input: CreateServerInput): Promise<CreateServ
     vectorIndexed: isHybridModel(input.embeddingModel),
     authKey: generateAuthKey(),
     desiredState: 'stopped',
+    serverKind: 'docs-rag',
+    credentialKeys: [],
     definition,
   });
 
@@ -252,6 +286,45 @@ export async function createServer(input: CreateServerInput): Promise<CreateServ
     ingestion,
     indexLabel: indexLabel(input.embeddingModel),
     indexWarning,
+  };
+}
+
+async function createMcpServerEntry(
+  input: CreateServerInput,
+  slug: string,
+  definition: ServerDefinition,
+): Promise<CreateServerResult> {
+  const templateId = definition.template?.id ?? 'unknown';
+
+  emitProgress(input.onProgress, { stage: 'credential', message: 'Storing credentials...' });
+  const credentials = input.credentials ?? {};
+  const credentialKeys = Object.keys(credentials);
+  if (credentialKeys.length > 0) {
+    await saveCredentials(slug, credentials);
+  }
+
+  emitProgress(input.onProgress, { stage: 'register', message: 'Registering MCP server...' });
+  const meta = await registerServer({
+    name: input.name,
+    slug,
+    sourceUrl: `mcp-server:${templateId}`,
+    sourceType: 'manual',
+    ingestionVersion: '1.0.0',
+    embeddingModel: 'fuse',
+    chunkCount: 0,
+    vectorIndexed: false,
+    authKey: generateAuthKey(),
+    desiredState: 'stopped',
+    serverKind: 'mcp-server',
+    credentialKeys,
+    definition,
+  });
+
+  emitProgress(input.onProgress, { stage: 'done', message: 'MCP server configured successfully' });
+  return {
+    meta,
+    ingestion: makeEmptyIngestionResult(templateId),
+    indexLabel: 'n/a',
   };
 }
 

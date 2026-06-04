@@ -59,7 +59,8 @@ export type TemplateReference = z.infer<typeof TemplateReferenceSchema>;
 
 export const ServerDefinitionSchema = z.object({
   version: z.literal(1).default(1),
-  sources: z.array(SourceDefinitionSchema).min(1),
+  // min(1) relaxed: mcp-server kind templates have no sources (run config lives in template)
+  sources: z.array(SourceDefinitionSchema).default([]),
   template: TemplateReferenceSchema.optional(),
 });
 

@@ -64,7 +64,9 @@ async function main() {
       await cmdList(jsonOutput);
       return;
     }
-    case 'create': {
+    case 'create':
+    case 'install': {
+      // 'install' is sugar for 'create --template <id>' (mcp-server mental model)
       const { cmdCreate } = await import('./commands/create.js');
       await cmdCreate(args, jsonOutput);
       return;
