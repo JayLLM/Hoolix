@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.1-beta.8] - 2026-06-04
+
 - Added the Phase 1 server definition foundation: metadata now carries an optional validated `definition` with typed sources, legacy servers are migrated on read, `hoolix create` supports additive repeated `--source type:value` inputs, and CLI/TUI/Web GUI surfaces show compact multi-source summaries without changing existing `--url` behavior.
 - Added the Phase 2 official template catalog: `hoolix templates list/info`, `hoolix create --template <id>`, template-backed server definitions, first official templates (`docs-rag`, `github-docs`, `terraform-aws-docs`, `hoolix-docs`), GUI template cards, TUI template shortcuts, and richer MCP source/template labels in documentation tool responses.
 - Added Phase 3 transport and reliability polish: scriptable stdio JSON config, optional source auth via `--header` / `--cookie`, incremental reindex fingerprints with `--force`, explicit scheduled reindexing via `--schedule` and `reindex --due`, persisted HTTP rate-limit state, context-window/token-budget aware MCP tool responses, and richer `doctor` / `verify` health signals.
@@ -111,7 +113,8 @@ App currently hangs during github workflow. Will be investigated later.
 - Added optional hybrid RAG with lazy BGE embedding + RRF reranker behind `--hybrid` / `--embedding-model`.
 - Added one-command client wiring for Claude/Cursor/Windsurf/Continue/Cline/GrokBuild and `--json` scripting support.
 
-[Unreleased]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.7...HEAD
+[Unreleased]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.8...HEAD
+[0.0.1-beta.8]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.7...v0.0.1-beta.8
 [0.0.1-beta.7]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.6...v0.0.1-beta.7
 [0.0.1-beta.6]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.5...v0.0.1-beta.6
 [0.0.1-beta.5]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.4...v0.0.1-beta.5
