@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.1-beta.20] - 2026-06-04
+
 ### Fixed
 
 Documentation update.
@@ -294,7 +296,8 @@ App currently hangs during github workflow. Will be investigated later.
 - Added optional hybrid RAG with lazy BGE embedding + RRF reranker behind `--hybrid` / `--embedding-model`.
 - Added one-command client wiring for Claude/Cursor/Windsurf/Continue/Cline/GrokBuild and `--json` scripting support.
 
-[Unreleased]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.19...HEAD
+[Unreleased]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.20...HEAD
+[0.0.1-beta.20]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.19...v0.0.1-beta.20
 [0.0.1-beta.19]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.18...v0.0.1-beta.19
 [0.0.1-beta.18]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.17...v0.0.1-beta.18
 [0.0.1-beta.17]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.16...v0.0.1-beta.17
