@@ -205,7 +205,10 @@ export async function discoverGitHubDocFiles(
       const res = await githubFetchers.fetchWithRetry(treeUrl, { headers: authHeaders(token), timeout: 15000 });
       if (res.status === 403 || res.status === 429) {
         const rem = res.headers.get('x-ratelimit-remaining');
-        logger.warn(`GitHub API rate limited (remaining=${rem}); falling back to direct candidates. Provide GITHUB_TOKEN for richer discovery.`);
+        logger.warn(
+          `GitHub API rate limited (remaining=${rem ?? '?'}) — falling back to limited discovery (~12 files). ` +
+          `Set GITHUB_TOKEN for 5,000 req/hr vs 60 req/hr unauthenticated: export GITHUB_TOKEN=<token>`
+        );
         // fall through to limited direct
       } else if (res.ok) {
         const data: any = await res.json();
@@ -298,8 +301,10 @@ export async function fetchGitHubRepoDocumentation(
   const maxPages = opts.maxPages || 80;
 
   if (!token) {
-    // Non-fatal; public works, private will fail primary + expansion with hints in fetchers
-    logger.debug('GITHUB_TOKEN not set — using limited discovery (public GitHub ok; private requires token with repo scope)');
+    logger.warn(
+      'No GITHUB_TOKEN set — using limited file discovery (~12 files max). ' +
+      'For full repo indexing set: export GITHUB_TOKEN=<token>  (needs "repo" scope or "Contents: Read" fine-grained permission).'
+    );
   }
 
   // Primary (llms or README)

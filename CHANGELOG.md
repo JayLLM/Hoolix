@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **stdio MCP transport** — `hoolix start <slug> --transport stdio` runs the MCP server in-process over stdin/stdout, compatible with Claude Desktop, VS Code extensions, and any MCP client that prefers the stdio transport. All three tools (`search_documentation`, `read_documentation_page`, `get_table_of_contents`) work identically; audit logging is preserved. Human-readable output is written to stderr so the MCP protocol on stdout is never corrupted. The `hoolix start` HTTP output now also prints the matching stdio client config snippet so users see both options at once.
+  - New `src/mcp/stdio-host.ts` — self-contained stdio server (no HTTP, no auth key, no rate limiting; trust boundary is OS process ownership).
+- **`hoolix stats <slug>`** — analytics dashboard built from the existing `audit.log`. Shows tool call breakdown (with %), top 10 search queries ranked by frequency, top 10 most-retrieved pages, health metrics (avg hits/search, zero-result rate, rate limit events, tool errors), and a 7-day activity bar chart. Supports `--days N` (default 30) and `--json`.
+- **GitHub token warnings** — `hoolix create` and `hoolix reindex` now emit a clear `warn`-level message when ingesting a GitHub repo without `GITHUB_TOKEN`: discovery falls back to ~12 files and users see the exact `export GITHUB_TOKEN=<token>` fix. Rate-limited responses from the GitHub API also produce an improved warning with the 60 req/hr vs 5,000 req/hr context.
+
+### Changed
+
+- `hoolix start` output now shows **both** the Streamable HTTP config and the stdio config snippet side-by-side, so users immediately see which format their client needs.
+- `hoolix stats` replaces the need to manually parse `hoolix audit` JSON for common usage questions.
+
 ## [0.0.1-beta.5] - 2026-06-04
 
 ### Added

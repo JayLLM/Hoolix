@@ -118,6 +118,11 @@ async function main() {
       await cmdAudit(args);
       return;
     }
+    case 'stats': {
+      const { cmdStats } = await import('./commands/stats.js');
+      await cmdStats(args, jsonOutput);
+      return;
+    }
     case 'export': {
       const { cmdExport } = await import('./commands/export.js');
       await cmdExport(args, jsonOutput);
