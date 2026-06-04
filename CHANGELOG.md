@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.1-beta.9] - 2026-06-04
+
 ### Added
 
 - Added Phase 4 growth and ecosystem polish: shared analytics reports powering richer `hoolix stats` and GUI stats cards, team-safe export bundles with `--strip-key`, `--team`, and source-auth stripping by default, `hoolix trial` for one-command npx demos, GUI/TUI trial shortcuts, and JSON-manifest custom source provider hooks via `custom:<provider>:<value>`.
@@ -117,7 +119,8 @@ App currently hangs during github workflow. Will be investigated later.
 - Added optional hybrid RAG with lazy BGE embedding + RRF reranker behind `--hybrid` / `--embedding-model`.
 - Added one-command client wiring for Claude/Cursor/Windsurf/Continue/Cline/GrokBuild and `--json` scripting support.
 
-[Unreleased]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.8...HEAD
+[Unreleased]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.9...HEAD
+[0.0.1-beta.9]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.8...v0.0.1-beta.9
 [0.0.1-beta.8]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.7...v0.0.1-beta.8
 [0.0.1-beta.7]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.6...v0.0.1-beta.7
 [0.0.1-beta.6]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.5...v0.0.1-beta.6
