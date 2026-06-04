@@ -5,67 +5,87 @@ sidebar_position: 1
 
 # Architecture Overview
 
-hoolix turns a documentation URL into a production-grade, authenticated MCP server using the official Model Context Protocol (Streamable HTTP transport).
+Hoolix turns sources and templates into production-grade MCP servers. The CLI, TUI, and GUI all call shared app services so behavior stays consistent across surfaces.
 
 ## High-Level Components
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                           CLI (src/index.ts)                     │
-│  create | start | reindex | verify | list | doctor | ...         │
-│  @clack prompts + spinners + --json support                      │
-└───────────────────────────────┬─────────────────────────────────┘
-                                │
-        ┌───────────────────────┼───────────────────────┐
-        ▼                       ▼                       ▼
-┌───────────────┐      ┌────────────────┐      ┌─────────────────┐
-│  Ingestion    │      │   Registry +   │      │  ServerManager  │
-│  (pipeline,   │      │   Paths,       │      │  (process/      │
-│   fetchers,   │      │   Config,      │      │   manager.ts)   │
-│   chunker...) │      │   Errors       │      │                 │
-└───────┬───────┘      └───────┬────────┘      └────────┬────────┘
-        │                      │                        │
-        │ chunks + stats       │ metadata.json          │ spawn
-        ▼                      ▼                        ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                        Per-Server Data                          │
-│  servers/<slug>/                                                │
-│    ├─ metadata.json   (Zod validated, sourceUrl, chunkCount...) │
-│    ├─ data/chunks.json (rich metadata + content for RAG)        │
-│    └─ .runtime.json   (pid, port, startedAt - transient)        │
-└─────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    MCP Host (src/mcp/host.ts)                   │
-│  Hono + WebStandardStreamableHTTPServerTransport                │
-│  - /health (no auth)                                            │
-│  - /mcp    (Bearer or X-MCP-Key required)                       │
-│  Tools: search_documentation, read_documentation_page,          │
-│         get_table_of_contents                                   │
-│  All results include "Source: <url>" for grounding              │
-└─────────────────────────────────────────────────────────────────┘
+```text
+CLI / TUI / GUI
+      |
+      v
+Shared app services
+  - servers
+  - catalog
+  - analytics
+  - events/progress
+      |
+      +--> source definitions + template catalog
+      +--> ingestion pipeline
+      +--> RAG index
+      +--> registry + storage
+      +--> process manager
+      |
+      v
+MCP host
+  - Streamable HTTP
+  - stdio config
+  - auth, rate limits, audit, stats
+  - search/read/toc tools
 ```
 
-## Key Invariants (from AGENTS.md)
+## Folder Map
 
-- **No source or tsx at runtime**: Packaged `bun build --compile` binaries detect `!process.execPath.includes('node') && !includes('bun')` and re-spawn themselves as `__internal-host`.
-- **RAG is Fuse.js + JSON only** in the hot path. LanceDB exists in package.json only as a future path; it is never loaded for normal operation.
-- **Every search/read result carries source URLs**.
-- **llms.txt / llms-full.txt first-class**: Manifest expansion or full-concat content preferred over scraping.
-- **Windows-first reliability**: `env-paths`, `ps-list` + `tree-kill`, real TCP port probes, `.cmd` handling for tsx.
+| Area | Responsibility |
+| --- | --- |
+| `src/app/` | Shared contracts, progress events, and business services |
+| `src/commands/` | Command modules that adapt CLI flags to app services |
+| `src/tui/` | Pure-Node terminal dashboard, dynamically imported |
+| `src/web/` | Local token-protected GUI and API routes |
+| `src/sources/` | Source parsing, validation, and plugin discovery |
+| `src/catalog/` | Official templates |
+| `src/ingestion/` | Fetch, clean, discover, chunk, and provenance tagging |
+| `src/rag/` | Fuse.js index and optional hybrid search |
+| `src/core/` | Paths, config, registry, errors, logger, version |
+| `src/process/` | Cross-platform server process management |
+| `src/mcp/` | MCP host, tools, transports, auth, rate, audit, stats |
 
-## Data Flow Summary
+## Data Model
 
-1. `create` → `ingestDocumentation` (fetch + manifest or full + per-page clean + heading chunk) → `createRAGForServer().indexChunks` → `registerServer`
-2. `start` → `ServerManager.start` (choose spawn strategy) → host writes runtime marker + serves
-3. MCP client calls → auth middleware → MCP SDK tools → `DocumentationRAG` (direct keyword fast-path or Fuse) → grounded text responses
-4. `reindex` / `verify` re-use the same ingestion + RAG paths against the stored `sourceUrl`
+Each server stores:
+
+- `metadata.json`
+- optional `definition`
+- `data/chunks.json`
+- optional hybrid embeddings
+- source fingerprints and reindex schedule metadata
+- audit and stats files
+- transient runtime markers
+
+Legacy single-source metadata remains supported. When loaded, it is treated as a one-source server definition.
+
+## Core Flow
+
+1. `create` resolves `--url`, repeated `--source`, or `--template`.
+2. App services validate the definition.
+3. Ingestion fetches each source and annotates chunks with provenance.
+4. RAG indexing builds keyword or optional hybrid search.
+5. Registry metadata is persisted.
+6. `verify` checks quality and grounding.
+7. `start` hosts MCP over HTTP or prints stdio config.
+8. `connect`, TUI, and GUI use the same server services for lifecycle operations.
+
+## Key Invariants
+
+- Packaged binaries must not require source files or `tsx`.
+- TUI stays dynamically imported and pure Node.
+- Search/read/TOC results include source URLs.
+- Default RAG stays lightweight; hybrid search is optional and lazy.
+- Paths and process management stay cross-platform.
+- Persisted and external data is validated with Zod.
 
 ## See Also
 
 - [Ingestion Pipeline](./ingestion-pipeline)
 - [RAG and MCP Tools](./rag-and-tools)
-- [Host & Process Model](./host-and-process)
-- [API Reference](../api-reference/core)
-- ADRs live in `docs/adr/`: `0001-web-gui-bundled-assets.md`, `0002-pure-node-tui.md`, `0003-optional-hybrid-rag.md`.
+- [Host and Process](./host-and-process)
+- [CLI Reference](../api-reference/cli)

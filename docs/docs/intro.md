@@ -3,42 +3,53 @@ sidebar_label: Introduction
 sidebar_position: 0
 ---
 
-# hoolix Documentation
+# Hoolix Documentation
 
-**hoolix** turns documentation URLs (especially `llms.txt` and `llms-full.txt`) into fully functional, authenticated MCP servers using the official Model Context Protocol Streamable HTTP transport.
+Hoolix is the MCP home base for developers and teams. It turns documentation sites, `llms.txt`, GitHub repositories, templates, private sources, and custom source plugins into secure, source-grounded MCP servers.
 
-Connect them to Claude, Cursor, Grok Build, Windsurf, or any other MCP-capable agent and get grounded, source-linked answers from your docs.
+Use it from the TUI, CLI, or local GUI. All three surfaces share the same server definitions, catalog, ingestion, verification, hosting, analytics, and export logic.
+
+## Start Here
+
+```bash
+hoolix
+```
+
+The default TUI is the best first experience. It helps you create a server, launch a trial, browse templates, start MCP hosting, connect a client, verify retrieval quality, and inspect logs.
+
+## What Hoolix Does
+
+- Creates MCP servers from single sources, multi-source definitions, and official templates.
+- Ingests `llms.txt`, `llms-full.txt`, GitHub repos, regular docs pages, private sources, and custom plugin sources.
+- Builds grounded RAG indexes with source URLs and source labels.
+- Hosts authenticated MCP over Streamable HTTP or stdio.
+- Verifies retrieval quality before you wire clients.
+- Tracks audit logs and usage analytics.
+- Supports incremental and scheduled reindexing.
+- Exports and imports team-safe `.hoolix.json` bundles.
+
+## Key Concepts
+
+| Concept | Meaning |
+| --- | --- |
+| Server | A named MCP server with auth, chunks, stats, audit logs, and lifecycle state |
+| Source | A docs, web, llms, GitHub, or custom input to ingest |
+| Server Definition | The validated model that records sources, template backing, auth hints, schedules, and options |
+| Template | A curated server definition from the official catalog |
+| Transport | Streamable HTTP or stdio MCP hosting |
+| Verify | Health checks for chunks, samples, grounding, source provenance, and retrieval quality |
 
 ## Quick Links
 
 - [Installation](./getting-started/installation)
 - [Quick Start](./getting-started/quick-start)
+- [Creating Servers](./guides/creating-servers)
+- [CLI Reference](./api-reference/cli)
 - [Architecture Overview](./architecture/overview)
-- [API Reference](./api-reference/cli)
 - [Changelog](./changelog)
-
-## Key Features
-
-- llms.txt + GitHub-aware (READMEs, docs/, tree with token) ingestion with heading chunking + per-page URLs for grounding
-- Fuse.js (default, zero-dep) + optional advanced hybrid (BGE-small/base + RRF rerank, query/embed caches, --hybrid or --embedding-model)
-- `connect <slug> --client cursor|claude|...` — auto-merge + backup + clipboard + per-client steps + test prompt
-- Lightweight interactive TUI dashboard (default `hoolix`; keys for start/stop/verify/connect/reindex/log tail, with masked on-screen secrets)
-- Secure: per-server keys, `rotate`, advanced in-memory rate limiting (configurable + Retry-After), append-only + queryable/rotated per-server `audit.log` (via `hoolix audit`), response size/timeout guards. Full GITHUB_TOKEN support for private GitHub ingestion.
-- Self-contained binaries + Windows-first (ps-list/tree-kill + PowerShell installer)
-- `verify` (samples, relevance, grounding quality, hybrid mode demo)
-- `reindex`, `doctor --json`, `--json` everywhere, actionable errors
-- Gold-standard docs + examples + contribution hygiene (this site + AGENTS.md)
 
 ## Philosophy
 
-Production-grade feel from day one:
-- Excellent ingestion and RAG quality is the product's reason for existing
-- Error states are actionable
-- Works out of the box after a simple install
-- User experience after installation > developer convenience
+Hoolix is optimized for the moment after installation: the binary should work, the TUI should feel welcoming, the first server should be useful, and every answer should cite where it came from.
 
-See [AGENTS.md](https://github.com/JayLLM/hoolix/blob/main/AGENTS.md) for the full set of rules contributors follow.
-
-## Next Step
-
-[Get started with installation →](./getting-started/installation)
+See [AGENTS.md](https://github.com/JayLLM/hoolix/blob/main/AGENTS.md) for contribution rules, architecture constraints, and the quality bar.

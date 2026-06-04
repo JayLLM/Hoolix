@@ -5,13 +5,16 @@ sidebar_position: 2
 
 # Core API Reference
 
-## Errors (`src/core/errors.ts`)
+Core modules provide paths, config, registry validation, errors, logging, and version/update helpers. Business behavior lives in `src/app/services`.
+
+## Errors
 
 ```ts
 export class MCPPError extends Error {
   code: string;
   details?: Record<string, unknown>;
 }
+
 export class ValidationError extends MCPPError {}
 export class IngestionError extends MCPPError {}
 export class ServerNotFoundError extends MCPPError {}
@@ -21,9 +24,9 @@ export class ProcessError extends MCPPError {}
 export function isMCPPError(err: unknown): err is MCPPError;
 ```
 
-All library code uses these instead of raw `Error` or strings.
+Use custom errors in library code so CLI, TUI, and GUI can present actionable messages.
 
-## Paths (`src/core/paths.ts`)
+## Paths
 
 ```ts
 export interface AppPaths {
@@ -41,42 +44,50 @@ export function getServerDataDir(slug: string): string;
 export function getServerRuntimePath(slug: string): string;
 ```
 
-Backed by `env-paths` (OS-correct user data locations). Never hard-code `~/.hoolix`.
+Paths use `env-paths` and can be overridden with `MCP_PORTAL_DATA_DIR`.
 
-## Registry (`src/core/registry.ts`)
+## Registry
 
 ```ts
-export const ServerMetadataSchema = z.object({ ... });
-export type ServerMetadata = z.infer<...>;
-
 export async function listServers(): Promise<ServerMetadata[]>;
 export async function getServerMetadata(slug: string): Promise<ServerMetadata>;
-export async function registerServer(meta: Omit<...>): Promise<ServerMetadata>;
-export async function updateServerMetadata(slug, updates): Promise<ServerMetadata>;
-export async function deleteServer(slug, { removeData } = {}): Promise<void>;
+export async function registerServer(meta: RegisterInput): Promise<ServerMetadata>;
+export async function updateServerMetadata(slug: string, updates: Partial<ServerMetadata>): Promise<ServerMetadata>;
+export async function deleteServer(slug: string, opts?: { removeData?: boolean }): Promise<void>;
 export function slugify(name: string): string;
-
-export async function getOnDiskChunkCount(slug: string): Promise<number | null>;
 export async function validateServerState(slug: string): Promise<{ valid: boolean; issues: string[] }>;
 ```
 
-`validateServerState` is the key helper used by `list`, `info`, and `verify`. It compares on-disk `chunks.json` length vs registry `chunkCount` without loading the full RAG.
+Registry metadata supports legacy `sourceUrl` fields and optional modern `definition` fields.
 
-## Version & Updater
+## App Services
+
+Shared services are the preferred integration point:
+
+- `src/app/services/servers.ts`
+- `src/app/services/catalog.ts`
+- `src/app/services/analytics.ts`
+- `src/app/events.ts`
+- `src/app/contracts.ts`
+
+Commands, TUI, and GUI should call services rather than duplicating business logic.
+
+## Config
+
+Config is Zod-validated and stores user preferences such as `preferredEmbedding`.
+
+## Version And Update
 
 ```ts
-export const VERSION = "0.0.0";        // synced from package.json on release; baked at compile
-
+export const VERSION: string;
 export async function checkForUpdate(): Promise<UpdateCheckResult>;
-export async function performUpdate(): Promise<boolean>;  // only for compiled binaries
+export async function performUpdate(): Promise<boolean>;
 ```
 
-## Config (rarely used at present)
-
-`loadConfig`, `saveConfig`, `updateConfig` with Zod schema. Currently mainly holds `preferredEmbedding` placeholder.
+Updates apply to compiled installs.
 
 ## See Also
 
 - [Registry and Validation](../configuration/registry-and-validation)
-- [Errors used in CLI flows](../getting-started/basic-usage)
-- Full Zod shapes in source
+- [Architecture Overview](../architecture/overview)
+- [CLI Reference](./cli)

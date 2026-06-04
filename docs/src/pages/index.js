@@ -8,16 +8,20 @@ import FeatureCard from '../components/FeatureCard';
 
 const terminalFrames = [
   {
-    prompt: 'hoolix create linear --url https://linear.app/llms.txt --yes',
-    output: ['✓ discovered llms-full.txt sibling', '✓ indexed 428 chunks with source URLs', '✓ generated auth key and registry entry'],
+    prompt: 'hoolix',
+    output: ['TUI dashboard opened', 'trial, templates, create, verify, connect', 'masked secrets with copy-on-demand config'],
   },
   {
-    prompt: 'hoolix verify linear',
-    output: ['grounding: 100% URLs present', 'search_documentation: 42ms p95', 'recommendation: ready for Cursor + Claude'],
+    prompt: 'hoolix create stack --source docs:https://react.dev/llms.txt --source github:vercel/next.js --yes',
+    output: ['validated multi-source definition', 'indexed chunks with source provenance', 'next: hoolix verify stack'],
   },
   {
-    prompt: 'hoolix connect linear --client cursor',
-    output: ['✓ merged MCP config', '✓ copied bearer token', 'Next: restart Cursor and ask about Linear docs'],
+    prompt: 'hoolix create terraform --template terraform-aws-docs --yes',
+    output: ['loaded official template', 'created template-backed MCP server', 'ready for verify, start, connect'],
+  },
+  {
+    prompt: 'hoolix start stack --transport stdio --json',
+    output: ['printed stdio MCP client config', 'HTTP transport also available', 'tools include source URLs'],
   },
 ];
 
@@ -111,22 +115,22 @@ function HomepageHeader() {
         <Reveal className="home-hero__copy">
           <div className="eyebrow">
             <span className="eyebrow__dot" />
-            Official portal for agent-ready documentation
+            The MCP home base for docs, sources, templates, and teams
           </div>
 
           <Heading as="h1" className="home-hero__title">
-            Turn docs into trusted MCP servers.
+            Hoolix turns knowledge into trusted MCP servers.
           </Heading>
 
           <p className="home-hero__subtitle">
-            Hoolix transforms <strong>llms.txt</strong>, GitHub repositories, and websites into authenticated,
-            hostable Streamable HTTP MCP servers with source-grounded RAG, verification, audit logs, and one-command
-            client connection.
+            Build secure, source-grounded MCP servers from <strong>llms.txt</strong>, GitHub repositories, websites,
+            private docs, custom sources, and official templates. Start in the TUI, automate with the CLI, or manage
+            visually from the local dashboard.
           </p>
 
           <div className="home-hero__actions">
             <Link className="button button--primary button--lg button--glow" to="/docs/getting-started/quick-start">
-              Start in 2 minutes
+              Start with the TUI
             </Link>
             <Link className="button button--secondary button--lg" to="/docs/intro">
               Explore docs
@@ -138,8 +142,8 @@ function HomepageHeader() {
 
           <div className="home-hero__proof" aria-label="Platform highlights">
             <span>Windows · macOS · Linux</span>
-            <span>Fuse.js + optional hybrid RAG</span>
-            <span>Claude · Cursor · Windsurf</span>
+          <span>TUI · CLI · GUI</span>
+          <span>HTTP · stdio</span>
           </div>
         </Reveal>
 
@@ -174,9 +178,9 @@ function FeaturesSection() {
   const features = [
     {
       icon: '📚',
-      title: 'llms.txt-native ingestion',
+      title: 'Source-native ingestion',
       description:
-        'Sibling llms-full discovery, manifest expansion, per-page chunking, GitHub tree fallback, and anti-bot resilience keep source URLs real.',
+        'Single URLs, multi-source definitions, GitHub repos, private docs, custom plugins, and llms-full discovery keep source URLs real.',
       to: '/docs/architecture/ingestion-pipeline',
     },
     {
@@ -190,14 +194,14 @@ function FeaturesSection() {
       icon: '🔐',
       title: 'Secure by default',
       description:
-        'Per-server keys, Bearer auth, rotation, rate limits, audit logs, response caps, and timeout wrappers are built into the host process.',
+        'Per-server keys, Bearer auth, rotation, persistent rate limits, audit logs, stats, response caps, and timeout wrappers are built in.',
       to: '/docs/guides/authentication',
     },
     {
       icon: '🪄',
-      title: 'Connect magic',
+      title: 'TUI, CLI, and GUI',
       description:
-        'A polished CLI and lightweight TUI create, verify, start, connect, rotate, and reindex servers with JSON output for automation.',
+        'Start in the TUI, automate with JSON CLI output, and use the local dashboard for templates, stats, and playground testing.',
       to: '/docs/api-reference/cli',
     },
     {
@@ -209,10 +213,10 @@ function FeaturesSection() {
     },
     {
       icon: '📦',
-      title: 'Binary-first distribution',
+      title: 'Templates and bundles',
       description:
-        'Packaged binaries self-spawn hosted servers without requiring tsx, source files, or a runtime on your users’ machines.',
-      to: '/docs/faq/binary-size-and-performance',
+        'Create from official templates, export team-safe bundles, import shared servers, and keep secrets stripped when needed.',
+      to: '/docs/guides/creating-servers',
     },
   ];
 
@@ -223,8 +227,8 @@ function FeaturesSection() {
           <span className="section-kicker">Feature stack</span>
           <h2>Everything agents need. Nothing in the hot path that they do not.</h2>
           <p>
-            Hoolix is designed around trustworthy retrieval, delightful post-install UX, and secure hostable MCP
-            servers that feel production-ready on day one.
+            Hoolix is designed around trustworthy retrieval, delightful post-install UX, and secure MCP servers that
+            feel production-ready on day one.
           </p>
         </Reveal>
 
@@ -242,10 +246,10 @@ function FeaturesSection() {
 
 function DemoSection() {
   const flow = [
-    ['Create', 'Ingest from llms.txt, GitHub, or any docs URL.'],
-    ['Verify', 'Inspect search quality, samples, and grounding percentage.'],
-    ['Host', 'Start authenticated Streamable HTTP with rate limits and audit.'],
-    ['Connect', 'Patch Cursor, Claude, or any MCP client in one command.'],
+    ['Explore', 'Open the TUI, launch a trial, or browse official templates.'],
+    ['Create', 'Ingest one source, many sources, private docs, GitHub repos, or custom plugins.'],
+    ['Verify', 'Inspect source health, samples, grounding, and retrieval quality.'],
+    ['Host', 'Use authenticated Streamable HTTP or stdio, then connect your client.'],
   ];
 
   return (
@@ -255,8 +259,8 @@ function DemoSection() {
           <span className="section-kicker">Live workflow</span>
           <h2>From a documentation URL to an agent-ready server.</h2>
           <p>
-            The CLI stays hand-rolled and fast, the TUI is dynamically loaded only when needed, and hosted MCP servers
-            keep every response grounded with source URLs.
+            Hoolix keeps the TUI friendly, the CLI scriptable, and the GUI visual while all three share the same
+            definitions, catalog, ingestion, verification, analytics, and hosting services.
           </p>
           <Link className="button button--primary" to="/docs/getting-started/quick-start">
             Follow the quick start
@@ -294,8 +298,8 @@ function DocsSection() {
           <span className="section-kicker">Documentation portal</span>
           <h2>A docs experience that feels part of the product.</h2>
           <p>
-            Premium sidebars, sticky table of contents, command-bar search, edit links, helpful prompts, copyable code,
-            and careful contrast keep readers moving.
+            Friendly quick starts, precise references, architecture notes, examples, and command recipes keep first-time
+            users and power users moving.
           </p>
         </Reveal>
         <div className="docs-lanes">
@@ -323,7 +327,7 @@ function PricingSection() {
             <h2>Open source today. Premium-grade forever.</h2>
             <p>
               Hoolix is built as a best-in-class open-source developer tool. Host it locally, inspect every source
-              URL, and automate every workflow from the CLI.
+              URL, automate every workflow from the CLI, and share team-safe bundles when your server is ready.
             </p>
           </div>
           <Link className="button button--secondary button--lg" to="https://github.com/JayLLM/hoolix">
@@ -341,7 +345,7 @@ function FinalCTA() {
       <div className="container">
         <Reveal>
           <h2>Give your agents documentation they can actually trust.</h2>
-          <p>Install the binary, create your first server, verify grounding, and connect your client in minutes.</p>
+          <p>Open the TUI, create a trial or template-backed server, verify grounding, and connect your client in minutes.</p>
           <div className="final-cta__actions">
             <Link className="button button--primary button--lg button--glow" to="/docs/getting-started/installation">
               Install Hoolix
@@ -361,8 +365,8 @@ export default function Home() {
 
   return (
     <Layout
-      title={`${siteConfig.title} — Official homepage and documentation portal`}
-      description="Hoolix turns documentation URLs into secure, hostable MCP servers with source-grounded RAG, verification, TUI, CLI automation, and client connect flows."
+      title={`${siteConfig.title} — MCP home base for docs, sources, templates, and teams`}
+      description="Hoolix turns docs, sources, GitHub repos, private knowledge, and templates into secure MCP servers with grounded RAG, TUI, CLI, GUI, HTTP, stdio, stats, and client connect flows."
       wrapperClassName="homepage"
     >
       <HomepageHeader />

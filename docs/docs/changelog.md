@@ -5,16 +5,25 @@ sidebar_position: 99
 
 # Changelog
 
-All notable changes to this project are documented in the root [CHANGELOG.md](https://github.com/JayLLM/hoolix/blob/main/CHANGELOG.md) following the [Keep a Changelog](https://keepachangelog.com/) format.
+The canonical changelog lives in the root repository:
 
-The latest version and Unreleased section are maintained there.
+- [CHANGELOG.md](https://github.com/JayLLM/hoolix/blob/main/CHANGELOG.md)
+- [GitHub Releases](https://github.com/JayLLM/hoolix/releases)
 
-## In This Documentation Site
+Use the changelog to track released CLI flags, templates, transports, bundle formats, and documentation changes.
 
-- The site itself was added in the "comprehensively documenting" work.
-- See the git history for the exact 6 atomic commits that introduced the Docusaurus site, comment cleanup, and CHANGELOG update.
+## Recent Themes
+
+- Shared app services for CLI, TUI, and GUI.
+- Server definitions and multi-source servers.
+- Official template catalog.
+- Streamable HTTP and stdio MCP support.
+- Incremental and scheduled reindexing.
+- Private source auth.
+- Usage stats, audit, team-safe bundles, trial servers, and custom source plugins.
 
 ## See Also
 
-- [Root CHANGELOG](https://github.com/JayLLM/hoolix/blob/main/CHANGELOG.md)
-- [Releases on GitHub](https://github.com/JayLLM/hoolix/releases)
+- [CLI Reference](./api-reference/cli)
+- [Creating Servers](./guides/creating-servers)
+- [Architecture Overview](./architecture/overview)

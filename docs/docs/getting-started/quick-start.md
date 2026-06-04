@@ -5,97 +5,117 @@ sidebar_position: 2
 
 # Quick Start
 
-Create your first MCP server from a documentation site in under two minutes.
+Hoolix turns docs, repos, and templates into grounded MCP servers. The fastest way to learn it is the TUI.
 
-## 1. Create a Server
-
-Use a real `llms.txt` or `llms-full.txt` URL. The tool prefers full concatenated content when available.
+## 1. Open Hoolix
 
 ```bash
-hoolix create "xAI Docs" --url https://docs.x.ai/llms.txt --yes
+hoolix
 ```
 
-For sites with a table-of-contents `llms.txt` (multi-page):
+Running `hoolix` with no arguments opens the terminal dashboard. From the TUI you can create servers, launch a trial, browse templates, start and stop servers, verify retrieval quality, copy client config, reindex, and inspect logs.
+
+If you are in CI or a non-interactive terminal, Hoolix prints CLI help instead.
+
+## 2. Create A Trial Server
 
 ```bash
-hoolix create "OpenClaw Docs" --url https://docs.openclaw.ai/llms.txt --yes
+hoolix trial
 ```
 
-Expected output includes:
-- Chunk count and source type
-- Special note when `llms-full.txt` was used ("concatenated documentation")
-- Next command hint
+The trial server uses known-good public sources and is perfect for a first run, a demo, or testing `npx hoolix trial`.
 
-## 2. Verify Quality (Recommended)
-
-Before connecting clients, run the built-in verifier. It exercises search, read, and table-of-contents using the same RAG the MCP tools will use.
+Verify it:
 
 ```bash
-hoolix verify xai-docs
+hoolix verify hoolix-trial
 ```
 
-Look for:
-- "RAG searchable: yes"
-- Results containing relevant text **and** `Source: https://...` lines
-- Non-empty Table of Contents
+Look for non-empty chunks, source URLs, and healthy sample searches.
 
-If results look poor, reindex or try a different source URL.
-
-## 3. Start the Server
+## 3. Start The MCP Host
 
 ```bash
-hoolix start xai-docs
+hoolix start hoolix-trial
 ```
 
-This prints:
-- The exact `mcpServers` JSON snippet for Claude Desktop, Cursor, Windsurf, Grok Build, etc.
-- `Authorization: Bearer mcp_...` header value (never stored in registry after display)
-- Quick `curl` tests for health and the MCP endpoint
-- Hint to use `test/verify-mcp.ts` for local simulation
-
-Copy the JSON block, or better: use the one-command wiring:
+By default this starts authenticated Streamable HTTP hosting and prints the MCP client configuration. Hoolix also supports stdio:
 
 ```bash
-hoolix connect xai-docs --client cursor   # or claude, windsurf, continue, cline, grokbuild
+hoolix start hoolix-trial --transport stdio --json
 ```
 
-This auto-merges (with .bak backup), copies to clipboard, and prints client-specific restart steps + a test prompt that exercises `search_documentation` + grounding.
+Use stdio when your client prefers a local command transport. Use HTTP when you want a running local endpoint.
 
-Then reload/restart your client.
-
-## 4. Test with a Client or curl
-
-Manual health (no auth):
+## 4. Connect A Client
 
 ```bash
-curl -s http://127.0.0.1:3456/health
+hoolix connect hoolix-trial --client cursor
 ```
 
-Authenticated MCP initialize (example):
+`connect` can auto-merge Hoolix into supported client config files, create backups, copy config to your clipboard, and print client-specific restart steps. Supported targets include Cursor, Claude Desktop, Windsurf, Continue, Cline, Grok Build, and generic JSON.
 
-```bash
-curl -s -H "Authorization: Bearer mcp_XXXX" \
-  -X POST -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
-  -H 'content-type: application/json' \
-  http://127.0.0.1:3456/mcp
+Try this prompt in your client:
+
+```text
+Use search_documentation to find installation instructions and cite the source URL.
 ```
 
-For full tool exercising without an MCP client, use the simulator script from the project:
+## 5. Create Your Own Server
+
+### Single Source
 
 ```bash
-node --import tsx test/verify-mcp.ts --slug xai-docs
+hoolix create "React Docs" --url https://react.dev/llms.txt --yes
+hoolix verify react-docs
+```
+
+### Multi-Source
+
+```bash
+hoolix create "Frontend Stack" \
+  --source docs:https://react.dev/llms.txt \
+  --source github:vercel/next.js \
+  --yes
+```
+
+### Template
+
+```bash
+hoolix templates list
+hoolix create "Terraform AWS" --template terraform-aws-docs --yes
+```
+
+## What Hoolix Created
+
+Each server has:
+
+- A slug, generated from the display name.
+- A validated server definition with sources and optional template backing.
+- A per-server auth key.
+- Indexed chunks with source provenance.
+- RAG search and page-read tools.
+- Audit logs and usage stats.
+- Reindex and export/import support.
+
+## Helpful Next Commands
+
+```bash
+hoolix list
+hoolix info react-docs
+hoolix stats react-docs
+hoolix reindex react-docs --schedule daily --yes
+hoolix gui
+hoolix doctor
 ```
 
 ## Next Steps
 
-- Use `hoolix connect xai-docs --client cursor` (or your client) for instant wiring.
-- Just run `hoolix` (no args) for the interactive TUI dashboard.
-- Learn [multi-page + GitHub ingestion](../guides/multi-page-llms)
-- See [reindex + verify](./basic-usage#reindexing)
-- [Architecture](../architecture/overview) (grounding, hybrid RAG, host model)
+- Learn [how to create servers](../guides/creating-servers) from URLs, sources, templates, and private docs.
+- Read the [CLI reference](../api-reference/cli) for flags and JSON output.
+- Explore [reindexing and verify](../guides/reindexing-and-verify).
+- Understand the [ingestion pipeline](../architecture/ingestion-pipeline).
 
-Try `hoolix create "Test" --url https://raw.githubusercontent.com/modelcontextprotocol/servers/main/README.md --yes --hybrid` (or `--embedding-model hybrid-bge-base`) to exercise advanced hybrid (RRF reranking, caches, verify --eval). See the [Advanced Hybrid RAG guide](../guides/advanced-rag).
-
-:::info
-Servers are stored under your OS user data directory (via `env-paths`). Run `hoolix doctor` to see exact paths.
+:::tip
+Run `hoolix doctor` any time you want to see paths, config, runtime status, source plugin discovery, and common setup issues.
 :::

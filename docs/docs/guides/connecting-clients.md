@@ -5,22 +5,25 @@ sidebar_position: 4
 
 # Connecting Clients
 
-The fastest way: after `create` + `verify`, run:
+The shortest path is:
+
+```bash
+hoolix verify my-docs
+hoolix start my-docs
+hoolix connect my-docs --client cursor
+```
+
+`connect` can detect supported clients, merge Hoolix into existing config, create backups, copy snippets to the clipboard, and print client-specific restart steps.
+
+## Streamable HTTP
+
+Default hosting:
 
 ```bash
 hoolix start my-docs
-hoolix connect my-docs --client cursor     # or claude, windsurf, continue, cline, grokbuild
 ```
 
-`connect` does:
-- Computes the exact `streamable-http` + Bearer entry (uses live port if running, or prompts/suggests).
-- Auto-detects popular clients.
-- **Merges** into your existing client config (never clobbers other servers).
-- Creates a timestamped `.bak` backup.
-- Copies the snippet to clipboard.
-- Prints client-specific steps + a ready-to-paste test prompt that exercises grounding.
-
-Example output snippet (identical to what `start` shows):
+Example client config:
 
 ```json
 {
@@ -28,39 +31,62 @@ Example output snippet (identical to what `start` shows):
     "my-docs": {
       "type": "streamable-http",
       "url": "http://127.0.0.1:3456/mcp",
-      "headers": { "Authorization": "Bearer mcp_..." }
+      "headers": {
+        "Authorization": "Bearer mcp_..."
+      }
     }
   }
 }
 ```
 
-## Supported Clients (2026)
+Use HTTP when you want a local endpoint managed by Hoolix.
 
-- **Cursor** — `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project with `--project`).
-- **Claude Desktop** — global `claude_desktop_config.json` (mac/win/linux paths).
-- **Windsurf** — `~/.codeium/windsurf/mcp_config.json`.
-- **Continue.dev** — `.continue/mcpServers/mcp.json` (compat).
-- **Cline** — `~/.cline/mcp.json`.
-- **Grok Build / xAI** — same JSON shape.
-- **Generic** — just prints + clipboard (for any other Streamable HTTP client or MCP Inspector).
-
-## Local / non-client testing
+## Stdio
 
 ```bash
-node --import tsx test/verify-mcp.ts --slug my-docs
-# or the curls printed by `start`
+hoolix start my-docs --transport stdio --json
 ```
+
+Use stdio for clients that spawn a local command. The JSON output is designed for direct client configuration or automation.
+
+## Supported Clients
+
+- Cursor
+- Claude Desktop
+- Windsurf
+- Continue
+- Cline
+- Grok Build
+- Generic MCP JSON
+
+Use:
+
+```bash
+hoolix connect my-docs --client generic --json
+```
+
+when your client is not listed or you want to handle config yourself.
+
+## Test Prompt
+
+After reconnecting or restarting your client, ask:
+
+```text
+Use search_documentation for installation instructions and cite the source URL.
+```
+
+Good results should include relevant text and a URL from your indexed source.
 
 ## Common Gotchas
 
-- Always use the exact `Authorization: Bearer ...` header.
-- After editing client config, fully restart/reload the client (Cursor "Reload Window", Claude full quit, etc.).
-- Port must match what you started (connect helps here).
-- hoolix is Streamable HTTP only (modern clients support it; older SSE-only need a proxy).
+- Restart or reload the client after config changes.
+- Make sure the port matches the running Hoolix host.
+- Use the exact bearer key from `start`, `connect`, or `rotate`.
+- Run `hoolix verify <slug>` before assuming the client is the issue.
+- For stdio, use the `--json` output exactly as your client expects.
 
 ## See Also
 
-- [Quick start](../getting-started/quick-start)
+- [Quick Start](../getting-started/quick-start)
 - [Authentication](./authentication)
-- [verify + reindex](./reindexing-and-verify)
-- Architecture: how the three tools work and why grounding URLs matter.
+- [MCP Host Reference](../api-reference/mcp-host)

@@ -5,118 +5,134 @@ sidebar_position: 3
 
 # Ingestion API Reference
 
-## Types (`src/ingestion/types.ts`)
+The ingestion layer is used through app services by the CLI, TUI, and GUI. Public shapes are validated and persisted through server and source definitions.
+
+## SourceDefinition
+
+Defined in the app/source model and validated with Zod.
 
 ```ts
-export type SourceType = 'llms.txt' | 'github' | 'generic' | 'manual';
+export type SourceKind = 'docs' | 'llms' | 'web' | 'github' | 'custom';
 
+export interface SourceDefinition {
+  id: string;
+  type: SourceKind;
+  value: string;
+  label?: string;
+  auth?: {
+    headers?: Record<string, string>;
+    cookies?: string[];
+  };
+}
+```
+
+CLI examples:
+
+```bash
+--source docs:https://react.dev/llms.txt
+--source github:vercel/next.js
+--source custom:handbook:getting-started
+```
+
+## ServerDefinition
+
+```ts
+export interface ServerDefinition {
+  version: number;
+  name: string;
+  sources: SourceDefinition[];
+  template?: {
+    id: string;
+    name: string;
+  };
+  schedule?: {
+    interval: 'hourly' | 'daily' | 'off';
+    nextRunAt?: string;
+  };
+}
+```
+
+Legacy servers with only `sourceUrl` are migrated into a one-source definition when loaded.
+
+## IngestedChunk
+
+```ts
 export interface IngestedChunk {
   id: string;
   content: string;
   metadata: {
-    url: string;           // critical for grounding
+    url: string;
     title: string;
-    sectionPath?: string;  // "Foo > Bar > Baz"
+    sectionPath?: string;
     headings?: string[];
     charCount: number;
     order: number;
+    sourceId?: string;
+    sourceType?: string;
+    sourceLabel?: string;
   };
 }
+```
 
+`metadata.url` is critical. MCP tools use it for grounding and clients should show it when citing answers.
+
+## IngestionResult
+
+```ts
 export interface IngestionResult {
   sourceUrl: string;
   sourceType: SourceType;
   title: string;
   chunks: IngestedChunk[];
-  stats: { totalChunks: number; totalChars: number; pagesProcessed: number; durationMs: number };
+  stats: {
+    totalChunks: number;
+    totalChars: number;
+    pagesProcessed: number;
+    durationMs: number;
+  };
   rawMarkdown?: string;
-}
-
-export interface IngestionProgress { stage: ...; message: string; current?: number; total?: number; }
-export type ProgressCallback = (p: IngestionProgress) => void;
-
-export interface IngestionOptions {
-  maxPages?: number;
-  maxChunks?: number;
-  chunkSize?: number;
-  chunkOverlap?: number;
-  onProgress?: ProgressCallback;
-  signal?: AbortSignal;
 }
 ```
 
-## Main Entry (`src/ingestion/pipeline.ts`)
+## Progress
+
+```ts
+export interface IngestionProgress {
+  stage: string;
+  message: string;
+  current?: number;
+  total?: number;
+}
+
+export type ProgressCallback = (progress: IngestionProgress) => void;
+```
+
+Progress events are shared across CLI spinners, TUI actions, GUI flows, and service calls.
+
+## Main Pipeline
 
 ```ts
 export async function ingestDocumentation(
   url: string,
-  options: IngestionOptions = {}
+  options?: IngestionOptions
 ): Promise<IngestionResult>;
 ```
 
-Orchestrates fetch → optional manifest expansion → per-page clean+chunk → cap → stats. Emits progress at every stage. The final `sourceUrl` in the result is the actual fetched document (may be a discovered `llms-full.txt`).
+The multi-source service layer calls the pipeline once per resolved source, annotates provenance, combines chunks, and builds the index.
 
-## Fetchers (`src/ingestion/fetchers.ts`)
+## Fetching
 
-```ts
-export interface FetchResult { content: string; contentType: string; url: string; }
+Fetchers support:
 
-export async function fetchDocumentation(
-  url: string,
-  opts: { discoverLlms?: boolean } = {}
-): Promise<FetchResult>;
-
-export async function tryFetchLlmsFull(llmsTxtUrl: string): Promise<FetchResult | null>;
-
-export function parseLlmsManifestUrls(content: string, baseUrl: string): string[];
-
-export async function fetchPagesConcurrently(
-  urls: string[],
-  concurrency?: number,
-  onProgress?: (completed: number, total: number) => void
-): Promise<FetchResult[]>;
-```
-
-`discoverLlms` defaults to `true`. **Must** be passed as `false` for manifest sub-pages (see pipeline and fetchers for the guard that prevents wrong `metadata.url`).
-
-## Chunker & Cleaners
-
-```ts
-export function chunkMarkdown(
-  markdown: string,
-  sourceUrl: string,
-  baseTitle: string,
-  opts: { targetSize?: number; overlap?: number; minChunkSize?: number } = {}
-): IngestedChunk[];
-
-export function htmlToMarkdown(html: string, baseUrl?: string): string;
-export function normalizeMarkdown(md: string): string;
-```
-
-Chunker is heading-stack aware and the only place `sectionPath` is built.
-
-## Detectors
-
-```ts
-export function detectSourceType(url: string, content?: string): SourceType;
-export function isLikelyMarkdown(contentType: string, content: string): boolean;
-```
-
-## Example (programmatic)
-
-```ts
-import { ingestDocumentation } from 'hoolix/ingestion/pipeline.js';
-import { createRAGForServer } from 'hoolix/rag/store.js';
-
-const result = await ingestDocumentation('https://docs.x.ai/llms.txt', {
-  maxPages: 40,
-  onProgress: (p) => console.log(p.message),
-});
-const rag = await createRAGForServer('my-docs');
-await rag.indexChunks(result.chunks);
-```
+- `llms-full.txt` sibling discovery.
+- Manifest expansion.
+- GitHub raw and tree discovery.
+- Request headers and cookies.
+- User-agent rotation and retries.
+- Curl fallback.
 
 ## See Also
 
 - [Architecture: Ingestion Pipeline](../architecture/ingestion-pipeline)
-- [Guides: Multi-page](../guides/multi-page-llms)
+- [Creating Servers](../guides/creating-servers)
+- [CLI Reference](./cli)

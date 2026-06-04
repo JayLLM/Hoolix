@@ -5,77 +5,147 @@ sidebar_position: 1
 
 # Creating Servers
 
-## Interactive
+A Hoolix server is a portable MCP server definition plus indexed source content, auth, stats, and lifecycle state.
+
+You can create servers from one URL, multiple sources, official templates, private docs, GitHub repositories, or custom source plugins.
+
+## TUI First
 
 ```bash
-hoolix create
-# prompts for name and URL
+hoolix
 ```
 
-## Non-Interactive (scripts / CI)
+The TUI is the easiest starting point. It can launch a trial, copy create commands, start and stop servers, verify, connect clients, reindex, and show logs.
+
+## Single-Source Servers
+
+The original syntax stays fully supported:
 
 ```bash
-hoolix create "My Product Docs" \
-  --url https://docs.example.com/llms-full.txt \
+hoolix create "React Docs" --url https://react.dev/llms.txt --yes
+```
+
+Use `--url` for:
+
+- `llms.txt`
+- `llms-full.txt`
+- GitHub repository URLs
+- Regular documentation pages
+- Raw Markdown or text URLs
+
+## Multi-Source Servers
+
+Use repeated `--source` flags to combine related knowledge into one MCP server:
+
+```bash
+hoolix create "Frontend Stack" \
+  --source docs:https://react.dev/llms.txt \
+  --source github:vercel/next.js \
+  --source web:https://nextjs.org/docs \
   --yes
 ```
 
-GitHub repos are now first-class too:
+Each source receives provenance metadata so search results can identify where they came from.
+
+## Source Syntax
+
+| Syntax | Use it for |
+| --- | --- |
+| `docs:<url>` | General documentation URLs |
+| `llms:<url>` | Explicit `llms.txt` or `llms-full.txt` sources |
+| `web:<url>` | Regular web pages |
+| `github:<owner>/<repo>` | GitHub repositories |
+| `custom:<provider>:<value>` | Source plugin manifests |
+
+## Template-Backed Servers
+
+Templates are curated server definitions for common MCP use cases.
 
 ```bash
-hoolix create "Repo Docs" --url https://github.com/owner/repo --yes
-# or a subdir: https://github.com/owner/repo/tree/main/docs
+hoolix templates list
+hoolix templates info docs-rag
+hoolix create "My Docs" --template docs-rag --url https://example.com/llms.txt --yes
 ```
 
-The `--yes` skips the confirmation prompt. The slug is derived via `slugify(name)` (lowercase, spaces/punct → `-`, max 64 chars).
+Current official templates include docs RAG, GitHub docs, Terraform AWS docs, and Hoolix docs examples. Template IDs may grow over time; use `hoolix templates list` for the source of truth.
 
-GitHub paths prefer llms.txt / llms-full.txt + README.md + docs/ .md files (raw content), with richer discovery when `GITHUB_TOKEN` is set (tree API + .gitignore awareness). Falls back gracefully.
+## Private Sources
 
-### Private GitHub Repos
-
-For private repos (or higher rate limits), provide a `GITHUB_TOKEN`:
+Use request headers and cookies for authenticated documentation:
 
 ```bash
-# Classic token (repo scope) or fine-grained with Contents:Read + Metadata:Read
+hoolix create "Private API" \
+  --url https://docs.example.com/llms.txt \
+  --header "Authorization: Bearer $DOCS_TOKEN" \
+  --cookie "session=$DOCS_SESSION" \
+  --yes
+```
+
+For private GitHub repositories:
+
+```bash
 export GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
-
-hoolix create "Private Docs" --url https://github.com/org/private-repo --yes
+hoolix create "Private Repo Docs" --source github:org/private-repo --yes
 ```
 
-- Token is used for both GitHub API (tree discovery) **and** raw content fetches (`raw.githubusercontent.com`).
-- Never commit tokens; use env or your shell profile.
-- The `hoolix doctor` and error messages surface guidance when auth fails on private sources.
-- Re-run `hoolix reindex <slug>` after setting token if initial create used public path.
+Private source auth is stored in the server definition so reindex can use the same access. Team exports strip sensitive server keys by default when you use `--team --strip-key`; only include source auth in bundles when you explicitly trust the destination.
 
-## What Happens
+## Custom Source Plugins
 
-1. `ingestDocumentation` runs (progress updates the spinner).
-2. RAG index is built (Fuse + direct keyword by default; add `--hybrid` or `--embedding-model hybrid-bge-base` or set `preferredEmbedding` in config for advanced hybrid with RRF reranking, query caching, etc.). See [Advanced Hybrid RAG](./advanced-rag).
-3. Server is registered with a fresh cryptographically random `mcp_...` key (plus `embeddingModel` + `vectorIndexed` metadata).
-4. You are shown the exact next command and a hint to run `verify`.
+Custom source plugins let teams map internal identifiers to Hoolix-supported source kinds.
 
-## Choosing a Good Source URL
+```bash
+hoolix create "Internal Handbook" --source custom:handbook:getting-started --yes
+```
 
-- Prefer `llms-full.txt` when the site provides one (best RAG quality, single file, perfect hierarchy).
-- A well-structured `llms.txt` that is actually a manifest of page links also works (multi-page mode).
-- Generic docs sites without llms files fall back to a single-page fetch (still useful but less coverage).
+Plugin manifests are discovered from the Hoolix data directory or `HOOLIX_SOURCE_PLUGIN_DIR`. Run `hoolix doctor` to confirm discovery.
+
+## Hybrid RAG
+
+The default index is fast Fuse.js + keyword search. Enable optional hybrid semantic retrieval when you want embedding-backed search:
+
+```bash
+hoolix create "Deep Docs" --url https://example.com/llms.txt --hybrid --yes
+```
+
+Hybrid models are lazy-loaded and may download on first use. See [Advanced RAG](./advanced-rag).
+
+## What Happens During Create
+
+1. Hoolix validates the server and source definition with Zod.
+2. Sources are fetched with progress events.
+3. Content is cleaned, chunked, and tagged with source provenance.
+4. The RAG index is built.
+5. Metadata, definition, chunks, auth, and schedule settings are stored.
+6. Hoolix prints the next useful commands.
 
 ## After Create
 
-Always run:
+Always verify before wiring clients:
 
 ```bash
 hoolix verify <slug>
 ```
 
-Then:
+Then start and connect:
 
 ```bash
 hoolix start <slug>
+hoolix connect <slug> --client cursor
+```
+
+## Maintenance
+
+```bash
+hoolix reindex <slug> --yes
+hoolix reindex <slug> --schedule daily --yes
+hoolix stats <slug>
+hoolix export <slug> --team --strip-key --file server.hoolix.json
 ```
 
 ## See Also
 
 - [Quick Start](../getting-started/quick-start)
-- [Multi-page Guide](./multi-page-llms)
-- [Reindexing](./reindexing-and-verify)
+- [CLI Reference](../api-reference/cli)
+- [Reindexing and Verify](./reindexing-and-verify)
+- [Authentication](./authentication)

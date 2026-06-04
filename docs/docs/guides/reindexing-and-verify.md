@@ -5,52 +5,106 @@ sidebar_position: 2
 
 # Reindexing and Verify
 
-## When to Reindex
+`verify` tells you whether a server is useful. `reindex` keeps it useful as sources change.
 
-- Upstream documentation has been updated.
-- You suspect drift (`list` or `info` shows validation warnings).
-- `list`, `info`, or `verify --json` shows an aging/stale freshness signal and the source may have changed.
-- You changed the source URL externally and want to point the server at new content.
-
-```bash
-hoolix reindex <slug> --yes
-```
-
-Reindex keeps the same auth key and slug. Only `chunkCount`, `sourceType`, and the on-disk `chunks.json` change.
-It also refreshes persisted ingestion stats so `verify` can report cap/truncation details and source coverage accurately.
-
-## The verify Command (Your Best Friend)
+## Verify First
 
 ```bash
 hoolix verify my-docs
 ```
 
-It does **not** talk to a running host. It directly loads the RAG the same way the MCP tools will, runs representative searches, and shows you:
+`verify` loads the same RAG index used by MCP tools and checks:
 
-- Whether chunks are present and searchable
-- Source coverage: how many chunks have grounding URLs and how many unique source URLs are represented
-- Ingestion cap/truncation status from the last create/reindex
-- Weak sample queries that returned no hits, ungrounded hits, or low scores
-- Sample content + the all-important `Source: <url>` lines
-- Reconstructed table of contents in source order
+- Server metadata and definition validity.
+- Chunk count and file consistency.
+- Source provenance and grounding URL coverage.
+- Sample searches and weak-query signals.
+- Table of contents reconstruction.
+- Hybrid mode health when enabled.
 
-If the top results for "overview", "install", "api" contain relevant prose and correct source URLs, your server will be useful to agents.
+Use it before connecting a client, after reindexing, and whenever users report poor answers.
 
-## Interpreting Output
+## Interpreting Verify Output
 
-- `RAG searchable: no (empty index?)` → chunks.json missing or empty → run reindex.
-- Validation issues in the first section → same.
-- `Truncated: yes` → ingestion hit `maxChunks` or `maxPages`; prefer a narrower source URL or reindex once cap flags/config are available.
-- Source coverage below 100% → some chunks are missing URLs; reindex and inspect ingestion output.
-- `Needs attention` queries → check those terms manually, try a better source, or use hybrid mode for semantic recall.
-- Good content but wrong Source URLs → you hit a bug in `discoverLlms` handling (rare after the guard was added).
+| Signal | Meaning |
+| --- | --- |
+| Empty chunks | Reindex or choose a better source URL |
+| Low grounding | Some chunks lack source URLs; inspect ingestion output |
+| Weak sample queries | Try a more specific source or enable hybrid search |
+| Source warnings | Check private auth, GitHub token, headers, cookies, or source plugin config |
+| Stale freshness | Reindex manually or configure a schedule |
 
-## Programmatic Equivalent
+## Manual Reindex
 
-See `test/verify-mcp.ts` — it does exactly what `verify` does but can be called from scripts or CI.
+```bash
+hoolix reindex my-docs --yes
+```
+
+Reindex preserves the slug and auth key. It refreshes sources, chunks, source health, fingerprints, ingestion stats, and the RAG index.
+
+## Incremental Reindex
+
+Incremental behavior is enabled by default where fingerprints are available. Hoolix can skip unchanged sources and rebuild only when needed.
+
+```bash
+hoolix reindex my-docs --yes
+```
+
+Force a full refresh:
+
+```bash
+hoolix reindex my-docs --force --yes
+```
+
+Disable incremental skipping for one run:
+
+```bash
+hoolix reindex my-docs --no-incremental --yes
+```
+
+## Scheduled Reindex Metadata
+
+Store a schedule on a server:
+
+```bash
+hoolix reindex my-docs --schedule daily --yes
+```
+
+Run all servers whose schedule is due:
+
+```bash
+hoolix reindex --due --json
+```
+
+Hoolix records the schedule and due state locally. Use your system scheduler, CI, or a team automation runner to call `hoolix reindex --due`.
+
+## Private Source Reindexing
+
+Private headers, cookies, and GitHub token needs apply during reindex too.
+
+```bash
+export GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
+hoolix reindex private-repo-docs --yes
+```
+
+If source auth fails, run:
+
+```bash
+hoolix doctor
+hoolix verify private-repo-docs
+```
+
+## JSON For CI
+
+```bash
+hoolix verify my-docs --json
+hoolix reindex --due --json
+```
+
+Use JSON output to gate release workflows, nightly refreshes, or internal quality checks.
 
 ## See Also
 
-- [CLI Reference - verify](../api-reference/cli)
-- [FAQ: Drifted State](../faq/common-issues)
-- [Architecture: RAG](../architecture/rag-and-tools)
+- [Creating Servers](./creating-servers)
+- [CLI Reference](../api-reference/cli)
+- [RAG and Tools](../architecture/rag-and-tools)

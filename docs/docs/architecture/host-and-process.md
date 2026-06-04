@@ -5,57 +5,57 @@ sidebar_position: 4
 
 # Host and Process Model
 
-This is the most critical architectural boundary in the project (see AGENTS.md "Host Execution Model").
+The host model protects the binary install experience: `hoolix start <slug>` must work after installation with no source files or external runtime.
 
-## The Two Worlds
+## Packaged Binary
 
-**Packaged binary (user after `install.ps1` / `bun build --compile`):**
+When running from a compiled binary, Hoolix self-spawns:
 
-- `hoolix start foo` detects `!process.execPath.includes('node') && !includes('bun')`
-- Spawns `currentBinary __internal-host --slug foo --port N --data-dir ... --auth-key ...`
-- The **same** binary executable re-enters via the guard at the bottom of `src/mcp/host.ts`
-- No tsx, no source files, no node_modules on the target machine.
+```text
+hoolix start foo
+  -> hoolix __internal-host --slug foo --port N --data-dir ... --auth-key ...
+```
 
-**Development / tsx / `bun run dev`:**
+The same executable re-enters the host path. Users do not need Node, Bun, `tsx`, or `node_modules`.
 
-- Prefers `node_modules/.bin/tsx(.cmd)` (Windows reliable)
-- Falls back to `node --import tsx src/mcp/host.ts ...`
-- The static `import { startHostedServer } from './mcp/host.js'` in `src/index.ts` helps the bundler include the host module.
+## Development
+
+In development, the process manager uses the source host through `tsx` or `node --import tsx` so contributors can iterate without rebuilding a binary.
 
 ## ServerManager Responsibilities
 
-- Early "starting" `.runtime.json` marker (so `list`/`info` show progress)
-- Real TCP port probe loop (127.0.0.1) instead of naive increment (fixed collision bugs)
-- HTTP `/health` wait (more reliable than file write alone)
-- Child stdio piping to logger
-- `treeKill` + `ps-list` for cross-platform stop + liveness (Windows has no reliable signals)
-- Final authoritative `.runtime.json` written only after health passes
+- Choose a safe port.
+- Write an early runtime marker.
+- Spawn the host cross-platform.
+- Wait for HTTP health when using HTTP transport.
+- Stop process trees with Windows-safe tooling.
+- Report status to CLI, TUI, and GUI.
 
-## Host (startHostedServer)
+## HTTP Host
 
-- Loads RAG first
-- Registers the three tools (with `as any` casts required by current SDK version)
-- Wraps each tool with a timeout guard (`MCP_TOOL_TIMEOUT_MS`, default 15000ms), response caps, and audit entries for calls/errors
-- Hono app:
-  - `GET /health` (public, reports chunks status)
-  - `use('/mcp', authMw)` — Bearer or X-MCP-Key; must be **before** route registration
-  - `all('/mcp', transport.handleRequest)`
-- Writes `.runtime.json` (pid, port, startedAt)
-- SIGTERM/SIGINT handlers remove the runtime file
+The HTTP host:
 
-## Why the Arg-Based Guard?
+- Loads RAG.
+- Registers MCP tools.
+- Serves public `/health`.
+- Protects `/mcp` with auth.
+- Applies tool timeouts, response guards, persistent rate limiting, audit, and stats.
+- Writes runtime metadata.
 
-Checking `process.argv.includes('--slug') && ...` (all four) is the only signal that works reliably across:
-- Direct `tsx` invocation
-- `node --import tsx`
-- Packaged binary `__internal-host` self-spawn
-- Manual debugging
+## Stdio
 
-It guarantees the main CLI entry never accidentally becomes an MCP host.
+```bash
+hoolix start <slug> --transport stdio --json
+```
+
+Stdio is exposed as client configuration rather than a long-running HTTP process. It is useful for clients that prefer local command transports.
+
+## Runtime Files
+
+`.runtime.json` is transient and should disappear on clean stop. `rate-state.json`, `audit.log`, and stats files live in the server data directory.
 
 ## See Also
 
-- `src/process/manager.ts`
-- `src/mcp/host.ts` (the if-guard + parse + startHostedServer)
-- [Configuration - Paths](../configuration/paths-and-data)
-- [Contributing - Testing](../contributing/testing) (how to test the spawn paths)
+- [MCP Host Reference](../api-reference/mcp-host)
+- [Paths and Data](../configuration/paths-and-data)
+- [Connecting Clients](../guides/connecting-clients)

@@ -5,24 +5,63 @@ sidebar_position: 6
 
 # Best Practices
 
-- Always run `hoolix verify <slug>` after create or reindex before wiring a client.
-- Prefer `llms-full.txt` sources when available.
-- Use descriptive human names; the slug is derived automatically.
-- Protect the user data directory (contains auth keys).
-- For large sites, start with a smaller `--url` pointing at a specific section's llms if possible, then expand.
-- Reindex regularly as part of doc-site release process.
-- Use `hoolix doctor --json` in CI or install verification scripts.
-- Never paste auth keys into tickets, PRs, or public logs.
-- For Windows users: the `.cmd` handling and ps-list are there for a reason — report spawn issues with full `doctor` output.
+## First Server
 
-## Grounding Quality Checklist (for verify output)
+- Start with `hoolix` and use the TUI if you are exploring.
+- Use `hoolix trial` when you want a known-good demo.
+- Prefer `llms-full.txt` or `llms.txt` sources when available.
+- Use templates when a curated starting point exists.
 
-- [ ] Every sample hit shows a `Source: https://...` line
-- [ ] The URL in Source is a real page, not the llms.txt manifest itself
-- [ ] Content looks relevant to the query term
-- [ ] Table of Contents has more than a couple of entries and the top-level titles match the site
+## Source Quality
+
+- Use multi-source servers when agents naturally need docs plus repository context.
+- Keep sources focused enough that results stay relevant.
+- Use `--header`, `--cookie`, or `GITHUB_TOKEN` for private content instead of copying private docs into public locations.
+- Use source plugins for repeatable internal source patterns.
+
+## Verification
+
+Always run:
+
+```bash
+hoolix verify <slug>
+```
+
+Check that:
+
+- Sample hits are relevant.
+- Every useful result has a source URL.
+- Source labels make sense for multi-source servers.
+- TOC entries look like the source structure.
+- Hybrid mode is actually helping before making it the default for a server.
+
+## Operations
+
+- Reindex after documentation releases.
+- Add schedules for servers that change often.
+- Use `hoolix stats` to understand what agents ask.
+- Use `hoolix audit` for security and debugging.
+- Rotate keys after sharing mistakes or team changes.
+
+## Sharing
+
+Prefer team-safe bundles:
+
+```bash
+hoolix export my-docs --team --strip-key --file my-docs.hoolix.json
+```
+
+Include keys or source auth only for private backups and trusted destinations.
+
+## Security
+
+- Protect the Hoolix data directory.
+- Avoid screenshots with full keys.
+- Do not commit `.hoolix.json` bundles unless they are intentionally stripped.
+- Restart clients after `connect` or `rotate`.
 
 ## See Also
 
-- [FAQ](../faq/common-issues)
-- [Contributing](../contributing/development-setup)
+- [Creating Servers](./creating-servers)
+- [Authentication](./authentication)
+- [Reindexing and Verify](./reindexing-and-verify)

@@ -5,39 +5,95 @@ sidebar_position: 3
 
 # Authentication
 
-Every server gets a unique, cryptographically strong key at creation time:
+Hoolix has two auth stories:
+
+- MCP host auth protects clients calling your server.
+- Source auth lets Hoolix fetch private documentation during create and reindex.
+
+## MCP Host Auth
+
+Every server gets a unique key:
 
 ```ts
 'mcp_' + randomBytes(24).toString('hex')
 ```
 
-The full key is shown only when a command needs to produce a usable connection payload, such as `hoolix start`, `hoolix connect --json`, or the new-key output from `hoolix rotate`. Status-style surfaces such as `list`, `info --json`, host logs, and Web GUI list/info responses mask auth keys.
+HTTP MCP requests can send:
 
-## How Clients Send It
-
-Two supported headers (case-insensitive for Bearer):
-
-```
-Authorization: Bearer mcp_0123456789abcdef...
-X-MCP-Key: mcp_0123456789abcdef...
+```text
+Authorization: Bearer mcp_...
+X-MCP-Key: mcp_...
 ```
 
-The MCP host middleware checks before the Streamable HTTP transport sees the request.
+`GET /health` is public so process managers can check the host. `/mcp` requires auth.
 
-## Health Check Is Public
+## Key Visibility
 
-`GET /health` requires no auth. This lets process managers and `doctor`-style checks work without leaking keys.
+Full keys are shown only by commands that intentionally produce connection payloads:
 
-## Security Model
+```bash
+hoolix start <slug>
+hoolix connect <slug> --json
+hoolix rotate <slug>
+```
 
-- Keys are per-server (not global).
-- Rotate keys with `hoolix rotate <slug> --yes` and then restart the server.
-- The key is only in memory of the running host and in the registry file on disk (protect that directory with normal OS permissions).
-- MCP tool handlers use timeout wrappers (`MCP_TOOL_TIMEOUT_MS`, default 15000ms), response caps, rate limiting, and append-only audit logging.
-- Never commit keys to git or share them in screenshots.
+Status surfaces such as `list`, `info`, TUI, GUI, and logs mask keys.
+
+## Rotate Keys
+
+```bash
+hoolix rotate my-docs
+hoolix stop my-docs
+hoolix start my-docs
+hoolix connect my-docs --client cursor
+```
+
+After rotation, update any client configs that used the old key.
+
+## Source Auth
+
+Use headers and cookies when the source requires credentials:
+
+```bash
+hoolix create "Private Docs" \
+  --url https://docs.example.com/llms.txt \
+  --header "Authorization: Bearer $DOCS_TOKEN" \
+  --cookie "session=$DOCS_SESSION" \
+  --yes
+```
+
+For private GitHub:
+
+```bash
+export GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
+hoolix create "Private Repo" --source github:org/private-repo --yes
+```
+
+Source auth is stored in the server definition so reindex can continue to work.
+
+## Team Safety
+
+Use team-safe exports when sharing bundles:
+
+```bash
+hoolix export my-docs --team --strip-key --file my-docs.hoolix.json
+```
+
+Only use `--include-key` for private backups. Only use `--include-source-auth` when the receiving team or machine is allowed to receive source credentials.
+
+## Host Protections
+
+HTTP hosts include:
+
+- Per-server auth keys.
+- Persistent rate limiting.
+- Tool timeouts.
+- Response guards.
+- Append-only audit logs.
+- Usage analytics.
 
 ## See Also
 
-- [Host implementation](../architecture/host-and-process)
 - [Connecting Clients](./connecting-clients)
-- Source: `src/mcp/host.ts` (auth middleware)
+- [Fetch and Protection Issues](../faq/fetch-and-protection)
+- [MCP Host Reference](../api-reference/mcp-host)

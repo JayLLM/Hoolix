@@ -3,44 +3,46 @@ import { ui } from './format.js';
 
 export function printHelp(): void {
   console.log(`
-${ui.accent('◆')} ${ui.brand} ${chalk.bold('Forge documentation into powerful, secure MCP servers.')}
+${ui.accent('◆')} ${ui.brand} ${chalk.bold('Your MCP home base for docs, sources, templates, and teams.')}
 
 ${chalk.bold('Usage')}
   hoolix [command] [options]
 
 ${chalk.bold('Commands')}
-  ${ui.accent('create')} [name]         Create server from docs URL/sources/templates (--url, --source, --template, --header, --cookie, --schedule)
-  ${ui.accent('trial')}                 One-click public trial server for npx / first-run demos (--json)
-  ${ui.accent('templates')}             List and inspect official templates (list, info <id>, --json)
+  ${ui.accent('(no command)')}          Open the TUI dashboard
+  ${ui.accent('trial')}                 Create a one-click demo server for first runs and npx demos (--json)
+  ${ui.accent('create')} [name]         Create from --url, repeated --source, or --template (private --header/--cookie supported)
+  ${ui.accent('templates')}             Browse official templates: list, info <id> (--json)
   ${ui.accent('list')}                  List registered servers (--json)
-  ${ui.accent('start')} <slug>          Start the MCP server (--port, --transport http|stdio, --json)
+  ${ui.accent('start')} <slug>          Start MCP hosting (--port, --transport http|stdio, --json)
   ${ui.accent('stop')} <slug>           Stop a running server (--json)
-  ${ui.accent('info')} <slug>           Show details and masked status info (--json)
-  ${ui.accent('connect')} <slug>        Wire server into client (auto-merge + backup for claude/cursor/etc; --client, --project, --json)
+  ${ui.accent('info')} <slug>           Show server definition, sources, index, and masked status info (--json)
+  ${ui.accent('connect')} <slug>        Wire into a client with backup/merge (cursor/claude/etc; --client, --project, --json)
   ${ui.accent('rotate')} <slug>         Rotate the Bearer auth key for a server (clients must be updated)
-  ${ui.accent('stats')} <slug>           Query analytics dashboard: top queries, pages, health, activity chart (--days N, --json)
+  ${ui.accent('stats')} <slug>          Show analytics: top queries, pages, health, and activity chart (--days N, --json)
   ${ui.accent('audit')} <slug>          Query raw audit log entries with filters (--json, --limit, --tool, --since)
-  ${ui.accent('export')} <slug>         Export server metadata + chunks to a .hoolix.json bundle (--file, --include-key, --json)
+  ${ui.accent('export')} <slug>         Export a .hoolix.json bundle (--team, --strip-key, --include-key, --file, --json)
   ${ui.accent('import')} --file <path>  Import a .hoolix.json bundle (--slug, --yes, --json)
   ${ui.accent('delete')} <slug>         Remove server and data (--yes, --json)
-  ${ui.accent('reindex')} <slug>        Incrementally re-fetch and rebuild RAG (--yes, --json, --force, --schedule hourly|daily|off, --due)
-  ${ui.accent('verify')} <slug>         Check RAG health, samples, grounding + optional --eval / --json
-  ${ui.accent('gui')}                   Launch web GUI / dashboard in browser (port 8080, token auth, create/manage/playground)
+  ${ui.accent('reindex')} <slug>        Incrementally refresh sources and rebuild RAG (--force, --schedule hourly|daily|off, --due)
+  ${ui.accent('verify')} <slug>         Check source, chunk, sample, grounding, and retrieval health (--eval, --json)
+  ${ui.accent('gui')}                   Launch the local web dashboard (token auth, catalog, stats, playground)
   ${ui.accent('doctor')} [--json]       Diagnose installation, paths, config, and runtime
   ${ui.accent('update')}                Check for and install the latest version (--json)
   ${ui.accent('uninstall')} [--yes]     Completely remove hoolix, all servers/data, the binary, and PATH entries (--json)
   ${ui.accent('version')}               Print the current version
 
 ${chalk.bold('Examples')}
-  ${ui.accent('›')} hoolix create "My Docs" --url https://example.com/llms.txt --yes
+  ${ui.accent('›')} hoolix
   ${ui.accent('›')} npx hoolix trial --json
+  ${ui.accent('›')} hoolix create "My Docs" --url https://example.com/llms.txt --yes
+  ${ui.accent('›')} hoolix create "Stack" --source docs:https://react.dev/llms.txt --source github:vercel/next.js --yes
   ${ui.accent('›')} hoolix templates list
   ${ui.accent('›')} hoolix create "React Docs" --template docs-rag --url https://react.dev/llms.txt --yes
   ${ui.accent('›')} hoolix create "Private Docs" --url https://docs.example.com/llms.txt --header "Authorization: Bearer $TOKEN" --yes
   ${ui.accent('›')} hoolix export my-docs --team --strip-key --file team-docs.hoolix.json
   ${ui.accent('›')} hoolix reindex my-docs --schedule daily --yes
   ${ui.accent('›')} hoolix reindex --due --json
-  ${ui.accent('›')} hoolix create "Stack" --source docs:https://react.dev/llms.txt --source github:vercel/next.js --yes
   ${ui.accent('›')} hoolix create "My Docs" --url https://example.com/llms.txt --yes --json
   ${ui.accent('›')} hoolix verify my-docs
   ${ui.accent('›')} hoolix start my-docs
@@ -55,10 +57,10 @@ ${chalk.bold('Examples')}
   ${ui.accent('›')} hoolix doctor --json
 
 ${chalk.bold('Status')}
-  ${ui.success('✓')} llms.txt-first + GitHub-aware ingestion with heading-aware chunking + full GITHUB_TOKEN for private repos (raw + tree)
-  ${ui.success('✓')} Fuse.js (default) + optional hybrid BGE-small RAG; every result includes Source URLs
-  ${ui.success('✓')} Hono + official MCP Streamable HTTP + per-server auth + tool timeouts + advanced rate limiting + queryable audit.log
-  ${ui.success('✓')} Self-contained binaries + interactive TUI (default when no command) + web GUI ('hoolix gui')
-  ${ui.success('✓')} connect + rotate + audit + browser dashboard for production client wiring, security, and visual management
+  ${ui.success('✓')} llms.txt-first, GitHub-aware, multi-source ingestion with source provenance
+  ${ui.success('✓')} Official templates, server definitions, private source auth, and custom source plugins
+  ${ui.success('✓')} Fuse.js default RAG + optional hybrid BGE search; every result includes Source URLs
+  ${ui.success('✓')} Streamable HTTP + stdio MCP transports with auth, timeouts, persistent rate limiting, audit, and stats
+  ${ui.success('✓')} Self-contained binaries, TUI by default, web GUI, connect, rotate, export/import, doctor, and verify
 `);
 }

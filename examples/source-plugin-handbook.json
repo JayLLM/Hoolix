@@ -1,0 +1,6 @@
+{
+  "id": "handbook",
+  "name": "Example Handbook",
+  "kind": "docs",
+  "urlTemplate": "https://example.com/handbook/{value}.html"
+}

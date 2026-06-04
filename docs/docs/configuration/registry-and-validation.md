@@ -5,33 +5,48 @@ sidebar_position: 3
 
 # Registry and Validation
 
-## ServerMetadata Shape (Zod)
+Hoolix validates persisted state with Zod so old servers continue to work and broken state is surfaced early.
 
-See `ServerMetadataSchema` in `src/core/registry.ts`. Key fields:
+## Server Metadata
 
-- `slug`: `[a-z0-9-]{1,64}`
-- `sourceUrl`: the exact URL used at create/reindex time
-- `embeddingModel`: always `'fuse'` today
-- `vectorIndexed`: always `false` today
-- `authKey`: the `mcp_...` value (shown only at start)
-- `chunkCount`: authoritative at registration time
+Key fields include:
 
-## validateServerState
+- `slug`: stable lowercase identifier.
+- `name`: display name.
+- `sourceUrl`: backward-compatible primary source URL.
+- `sourceType`: legacy/source summary.
+- `definition`: optional server definition with sources, template backing, auth hints, and schedules.
+- `embeddingModel`: `fuse` by default or a supported hybrid model.
+- `vectorIndexed`: whether vector data exists.
+- `authKey`: per-server `mcp_...` key.
+- `chunkCount`: expected chunk count.
+- `lastUpdatedAt`: latest create/reindex timestamp.
 
-Used by `list`, `info`, `verify`:
+Legacy servers without `definition` are migrated in memory to a one-source definition.
 
-- Tries to read metadata (corrupt → issue)
-- Compares `getOnDiskChunkCount()` vs `meta.chunkCount`
-- Common issues:
-  - `chunks.json missing — RAG will return no results (run "hoolix reindex <slug>")`
-  - `chunk count mismatch (registry claims X, disk has Y)`
+## Validation
+
+Used by `list`, `info`, `verify`, TUI, GUI, and services:
+
+- Reads metadata and checks schema validity.
+- Compares on-disk `chunks.json` count to metadata.
+- Checks source definition shape.
+- Surfaces missing chunks, count drift, stale source state, and migration issues.
+
+Common fixes:
+
+```bash
+hoolix verify <slug>
+hoolix reindex <slug> --yes
+hoolix doctor
+```
 
 ## Why Validation Exists
 
-Ingestion can partially fail, disks can be cleaned by users, reindex can be interrupted. The light validation surfaces broken state early without requiring a full RAG load or a running host.
+Servers can be interrupted mid-create, disks can be cleaned manually, source auth can expire, and old versions may lack newer definition fields. Validation lets Hoolix keep backward compatibility while showing users what to do next.
 
 ## See Also
 
-- [API: Core - Registry](../api-reference/core)
-- [Guides: Reindexing and Verify](../guides/reindexing-and-verify)
-- [FAQ: Drifted servers](../faq/common-issues)
+- [Paths and Data](./paths-and-data)
+- [Reindexing and Verify](../guides/reindexing-and-verify)
+- [CLI Reference](../api-reference/cli)

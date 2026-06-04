@@ -181,14 +181,14 @@ function buildFrame(state: TUIState): string {
   if (state.servers.length === 0) {
     const r1 = pad(' No servers yet.', leftW);
     const r2 = pad('', leftW);
-    const r3 = pad(` ${B.dot} n  copy create command`, leftW);
-    const r4 = pad(` ${B.dot} r  refresh`, leftW);
+    const r3 = pad(` ${B.dot} t  copy trial command`, leftW);
+    const r4 = pad(` ${B.dot} n  copy create command`, leftW);
     leftRaw.push(r1, r2, r3, r4);
     leftColored.push(
       ` ${A.dim}No servers yet.${A.reset}` + ' '.repeat(Math.max(0, leftW - 16)),
       r2,
+      ` ${A.cyan}${B.dot}${A.reset} ${A.dim}t${A.reset}  copy trial command` + ' '.repeat(Math.max(0, leftW - 21)),
       ` ${A.cyan}${B.dot}${A.reset} ${A.dim}n${A.reset}  copy create command` + ' '.repeat(Math.max(0, leftW - 22)),
-      ` ${A.cyan}${B.dot}${A.reset} ${A.dim}r${A.reset}  refresh` + ' '.repeat(Math.max(0, leftW - 12)),
     );
   } else {
     for (let i = 0; i < state.servers.length && leftRaw.length < mainRows; i++) {
@@ -286,16 +286,16 @@ function buildFrame(state: TUIState): string {
     rightColored.push(` ${A.dim}${B.dot} Press ${A.reset}${A.cyan}c${A.reset}${A.dim} to copy MCP config to clipboard${A.reset}` + ' '.repeat(Math.max(0, rightW - 42)));
   } else if (state.servers.length === 0) {
     const lines = [
-      '  Get started:',
+      '  Start here:',
       '',
-      `  1. hoolix create "My Docs" --url https://.../llms.txt --yes`,
+      `  1. hoolix trial`,
       `  2. hoolix templates list`,
-      `  3. hoolix trial`,
-      `  4. hoolix verify my-docs`,
-      `  5. hoolix start my-docs`,
+      `  3. hoolix create "My Docs" --url https://.../llms.txt --yes`,
+      `  4. hoolix create "Stack" --source docs:https://... --source github:owner/repo`,
+      `  5. hoolix verify my-docs`,
       `  6. hoolix connect my-docs --client cursor`,
       '',
-      `  ${B.dot} Press n to copy the create command.`,
+      `  ${B.dot} Press t for a trial server or n for a create command.`,
     ];
     for (const l of lines) {
       rightRaw.push(pad(l, rightW));

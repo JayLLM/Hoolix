@@ -1,12 +1,12 @@
 export function buildDashboardHtml(_initialToken: string): string {
-  // Self-contained modern dashboard; CSS and client JS are bundled into this module.
-  // Functional for beta: list, create, start/stop, reindex, verify, playground, delete, logs tail.
+  // Self-contained local dashboard; CSS and client JS are bundled into this module.
+  // Functional dashboard: list, create, templates, trial, stats, start/stop, reindex, verify, playground, delete, logs tail.
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Hoolix • Web GUI</title>
+  <title>Hoolix • Local Dashboard</title>
   <style>
     :root { --accent: #7dd3fc; color-scheme: dark; }
     * { box-sizing: border-box; }
@@ -63,7 +63,7 @@ export function buildDashboardHtml(_initialToken: string): string {
           </div>
           <div>
             <div class="font-display text-2xl font-semibold tracking-tighter">Hoolix</div>
-            <div class="text-[10px] text-zinc-500 -mt-1">WEB GUI <span class="text-emerald-400">BETA</span></div>
+            <div class="text-[10px] text-zinc-500 -mt-1">LOCAL <span class="text-emerald-400">MCP DASHBOARD</span></div>
           </div>
         </div>
       </div>
@@ -125,7 +125,7 @@ export function buildDashboardHtml(_initialToken: string): string {
           <div class="flex items-center justify-between mb-4">
             <div>
               <div class="text-2xl font-semibold tracking-tight">Your MCP Servers</div>
-              <div class="text-zinc-500 text-sm">Manage, start, and test your documentation servers</div>
+              <div class="text-zinc-500 text-sm">Manage sources, templates, transports, stats, and grounded MCP tools</div>
             </div>
             <button onclick="showCreateModal()" class="px-4 py-2 bg-white text-zinc-900 rounded-xl text-sm font-medium flex items-center gap-x-2 hover:bg-zinc-100">
               <i class="fa-solid fa-plus"></i>
@@ -138,7 +138,7 @@ export function buildDashboardHtml(_initialToken: string): string {
           </div>
           <div id="servers-empty" class="hidden text-center py-12">
             <i class="fa-solid fa-server text-4xl text-zinc-700 mb-3"></i>
-            <div class="text-zinc-400">No servers yet. Create your first one!</div>
+            <div class="text-zinc-400">No servers yet. Create one, launch a trial, or start from a template.</div>
           </div>
         </div>
 
@@ -147,7 +147,7 @@ export function buildDashboardHtml(_initialToken: string): string {
           <div class="flex items-center justify-between mb-4">
             <div>
               <div class="text-2xl font-semibold tracking-tight">Official Templates</div>
-              <div class="text-zinc-500 text-sm">Create known-good MCP servers from curated source presets</div>
+              <div class="text-zinc-500 text-sm">Start from curated server definitions with known-good source presets</div>
             </div>
             <button onclick="loadTemplates()" class="px-3 py-1.5 text-xs rounded-lg bg-zinc-800 hover:bg-zinc-700">Refresh</button>
           </div>
@@ -159,7 +159,7 @@ export function buildDashboardHtml(_initialToken: string): string {
           <div class="max-w-3xl">
             <div class="mb-4">
               <div class="text-2xl font-semibold tracking-tight">RAG Playground</div>
-              <div class="text-sm text-zinc-400">Test searches exactly as your agents will see them. Grounding URLs are always included.</div>
+              <div class="text-sm text-zinc-400">Test searches exactly as your agents will see them. Grounding URLs and source labels are always included.</div>
             </div>
 
             <div class="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
@@ -210,9 +210,9 @@ export function buildDashboardHtml(_initialToken: string): string {
           <input id="create-name" class="mt-1 w-full bg-zinc-950 border border-zinc-700 focus:border-sky-400 rounded-xl px-4 py-2.5 text-sm" placeholder="My Project Docs" value="Test Docs">
         </div>
         <div>
-          <label class="text-xs font-medium text-zinc-400">Documentation URL</label>
+          <label class="text-xs font-medium text-zinc-400">Source URL</label>
           <input id="create-url" class="mt-1 w-full bg-zinc-950 border border-zinc-700 focus:border-sky-400 rounded-xl px-4 py-2.5 text-sm monospace" placeholder="https://example.com/llms.txt or https://github.com/owner/repo" value="https://raw.githubusercontent.com/modelcontextprotocol/servers/main/README.md">
-          <div class="text-[10px] text-zinc-500 mt-1">Supports llms.txt, llms-full.txt, GitHub repos, regular docs pages.</div>
+          <div class="text-[10px] text-zinc-500 mt-1">Supports llms.txt, llms-full.txt, GitHub repos, and regular docs pages. Use the CLI for repeated --source, private headers, cookies, and custom plugins.</div>
         </div>
         <div class="flex items-center gap-3 pt-1">
           <input type="checkbox" id="create-hybrid" class="accent-sky-400" checked>
@@ -614,8 +614,8 @@ export function buildDashboardHtml(_initialToken: string): string {
         const main = document.getElementById('main-content');
         main.innerHTML = \`
           <div class="max-w-sm mx-auto mt-12 text-center">
-            <div class="text-xl font-semibold mb-2">Unlock Web GUI</div>
-            <div class="text-sm text-zinc-400 mb-4">Enter the GUI token printed when you ran <span class="font-mono">hoolix gui</span></div>
+            <div class="text-xl font-semibold mb-2">Unlock Hoolix Dashboard</div>
+            <div class="text-sm text-zinc-400 mb-4">Enter the local dashboard token printed when you ran <span class="font-mono">hoolix gui</span></div>
             <input id="unlock-token" class="w-full bg-zinc-900 border border-zinc-700 rounded-2xl px-4 py-3 text-sm monospace" placeholder="gui_xxxxxxxxxxxxxxxxxxxxxxxx">
             <button onclick="unlock()" class="mt-3 w-full bg-white text-black font-medium py-2.5 rounded-2xl">Unlock Dashboard</button>
           </div>

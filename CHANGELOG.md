@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Overhauled user-facing documentation across the README, docs site, CLI help, TUI empty state, GUI copy, and examples to reflect the current Hoolix experience: TUI-first onboarding, trial servers, multi-source definitions, templates, private sources, stdio transport, scheduled reindexing, stats, team-safe bundles, and custom source plugins.
+
 ## [0.0.1-beta.9] - 2026-06-04
 
 ### Added

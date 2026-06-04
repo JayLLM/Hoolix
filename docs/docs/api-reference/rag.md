@@ -5,51 +5,72 @@ sidebar_position: 4
 
 # RAG API Reference
 
-## Types (`src/rag/types.ts`)
+Hoolix uses fast Fuse.js + keyword retrieval by default and optional lazy hybrid semantic search when enabled.
+
+## SearchResult
 
 ```ts
 export interface SearchResult {
   content: string;
   score: number;
-  metadata: { url: string; title: string; sectionPath?: string; headings?: string[]; charCount: number };
+  metadata: {
+    url: string;
+    title: string;
+    sectionPath?: string;
+    headings?: string[];
+    charCount: number;
+    sourceId?: string;
+    sourceType?: string;
+    sourceLabel?: string;
+  };
   citationId?: string;
 }
+```
 
+## Search Options
+
+```ts
+export interface RAGSearchOptions {
+  limit?: number;
+  mode?: 'semantic' | 'keyword' | 'hybrid';
+  filterUrl?: string;
+  maxTokens?: number;
+  contextWindowTokens?: number;
+}
+```
+
+Token-aware options let clients ask for appropriately sized context. Hoolix trims result content while preserving source URLs.
+
+## ReadPageResult
+
+```ts
 export interface ReadPageResult {
   url: string;
   title: string;
-  content: string; // concatenated
-  chunks: Array<{ content: string; sectionPath?: string }>;
+  content: string;
+  chunks: Array<{
+    content: string;
+    sectionPath?: string;
+  }>;
 }
+```
 
+## TableOfContentsItem
+
+```ts
 export interface TableOfContentsItem {
   title: string;
   level: number;
   url?: string;
   sectionPath?: string;
   order?: number;
-}
-
-export interface RAGDiagnostics {
-  totalChunks: number;
-  chunksWithUrl: number;
-  sourceCoveragePercent: number;
-  uniqueSourceUrls: number;
-  totalChars: number;
-  averageChunkChars: number;
-  ordered: boolean;
-  duplicateChunkIds: number;
-  urls: string[];
-}
-
-export interface RAGSearchOptions {
-  limit?: number;
-  mode?: 'semantic' | 'keyword' | 'hybrid';
-  filterUrl?: string;
+  sourceId?: string;
+  sourceType?: string;
+  sourceLabel?: string;
 }
 ```
 
-## DocumentationRAG (`src/rag/store.ts`)
+## DocumentationRAG
 
 ```ts
 export class DocumentationRAG {
@@ -60,28 +81,33 @@ export class DocumentationRAG {
   async readPage(urlOrPath: string, maxChunks?: number): Promise<ReadPageResult | null>;
   async getTableOfContents(): Promise<TableOfContentsItem[]>;
   async getDiagnostics(): Promise<RAGDiagnostics>;
-  async close(): Promise<void>; // no-op for file backend
+  async close(): Promise<void>;
 }
-
-export async function createRAGForServer(slug: string): Promise<DocumentationRAG>;
 ```
 
-`createRAGForServer` is the only public factory used by the CLI, the MCP host, and `test/verify-mcp.ts`.
+`createRAGForServer(slug)` is the public factory used by services, CLI commands, TUI, GUI, and MCP hosts.
 
 ## Behavior Notes
 
-- `search` combines scored keyword matching (phrase/title/section/URL boosts, term coverage, weak-query penalties) with Fuse fuzzy matches, then optional semantic/RRF fusion for hybrid servers.
-- `readPage` matches on url substring or sectionPath substring.
-- All results preserve the original `metadata.url` from the chunk (the real page, never the manifest root).
-- TOC is derived purely from `sectionPath` strings in source order; no separate outline parsing at ingest time.
-- `getDiagnostics` powers `verify` source coverage and duplicate chunk checks.
+- Default search combines direct keyword scoring and Fuse fuzzy search.
+- Hybrid search adds embedding-backed retrieval and RRF fusion when configured.
+- Search/read/TOC preserve `metadata.url`.
+- Multi-source chunks preserve source provenance.
+- TOC is derived from chunk section paths in source order.
+- Diagnostics power `verify`.
 
-## Usage in MCP Host
+## MCP Tools
 
-The three `registerTool` calls in `host.ts` call exactly these methods and format the text responses with explicit `Source:` lines.
+The MCP host exposes:
+
+- `search_documentation`
+- `read_documentation_page`
+- `get_table_of_contents`
+
+All tool responses include source URLs. Search supports token budgeting inputs.
 
 ## See Also
 
 - [Architecture: RAG and Tools](../architecture/rag-and-tools)
-- [API: MCP Host](./mcp-host)
-- Tests: `test/rag-store.test.ts`
+- [MCP Host](./mcp-host)
+- [Reindexing and Verify](../guides/reindexing-and-verify)

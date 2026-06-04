@@ -5,34 +5,73 @@ sidebar_position: 2
 
 # Ingestion Pipeline
 
-The ingestion system is one of the highest-value parts of hoolix. It is designed to produce high-quality, grounded chunks with minimal user effort.
+The ingestion pipeline turns source definitions into grounded chunks. It is designed for reliable agent answers: every useful result should include a source URL, section context, and source provenance.
 
-## Stages (Observable via Progress Callbacks)
+## Inputs
 
-1. **Detect** — Heuristic source type (llms.txt vs github vs generic) using URL + content signals.
-2. **Fetch** — `fetchDocumentation` prefers `llms-full.txt` when input ends in `llms.txt`. For root calls it also performs discovery of `/llms-full.txt`, `/llms.txt`, `/docs/...` variants.
-3. **Manifest Expansion** (only when primary looks like a TOC manifest) — `parseLlmsManifestUrls` extracts markdown links + bare https lines, dedupes, strips assets/anchors/llms files themselves, then `fetchPagesConcurrently` (3-4 workers) fetches each with `discoverLlms: false`.
-4. **Clean** — HTML paths go through lazy-loaded `jsdom` + Readability + Turndown (see [cleaners.ts](https://github.com/JayLLM/hoolix/blob/main/src/ingestion/cleaners.ts) for the `createRequire` rationale that protects binary size). Markdown/llms paths use light `normalizeMarkdown`.
-5. **Chunk** — `chunkMarkdown` walks headings, maintains a stack for `sectionPath` (e.g. "Getting Started > Installation"), produces overlap from previous chunk tail, splits oversized blocks, and attaches per-chunk `url`, `title`, `headings`, `order`.
-6. **Cap & Emit** — Global `maxChunks` (default 6000 in CLI) and per-page early exit. Final `done` message distinguishes `llms-full.txt (concatenated documentation)` vs "N page(s)".
+Hoolix can ingest:
 
-## Why Per-Page Chunking Matters
+- `llms.txt` and `llms-full.txt`
+- GitHub repositories
+- Regular documentation pages
+- Raw Markdown or text
+- Private sources with headers or cookies
+- Custom source plugin outputs
+- Multi-source server definitions
+- Template-backed server definitions
 
-Each chunk's `metadata.url` is the **actual page URL**, not the root manifest. This guarantees that `search_documentation` and `read_documentation_page` return correct `Source:` lines for grounding in LLM responses.
+Legacy `--url` servers are migrated into a single-source definition when loaded.
 
-## Protection & Resilience
+## Stages
 
-- UA rotation + explicit `Accept: text/markdown` only during discovery (some sites 404 plain node fetch but serve curl/browser).
-- Retries with backoff + curl fallback in `fetchWithRetry`/`fetchTextWithFallback`.
-- GitHub special path (new in 0.0.2): raw + optional tree API (GITHUB_TOKEN) + .gitignore-aware discovery for READMEs/docs/llms. **Full GITHUB_TOKEN threading to raw.githubusercontent fetches for true private repo support** (API + raw + .gitignore + expansion pages). Always graceful fallback with actionable hints. See [Creating Servers](../guides/creating-servers#private-github-repos).
-- Sub-page fetches explicitly disable discovery to prevent metadata corruption.
+1. **Validate** — Server and source definitions are validated with Zod.
+2. **Resolve** — Templates and custom source plugin manifests are expanded into concrete sources.
+3. **Detect** — Source type is detected from source syntax, URL, and content signals.
+4. **Fetch** — Hoolix fetches content with request auth, retries, user-agent rotation, and GitHub-specific paths.
+5. **Discover** — `llms-full.txt`, `llms.txt`, manifests, READMEs, docs folders, and GitHub trees are discovered where possible.
+6. **Clean** — Markdown is normalized; HTML uses lazy-loaded readability tooling.
+7. **Chunk** — Heading-aware chunking preserves `sectionPath`, headings, order, title, and URL.
+8. **Annotate** — Chunks receive source provenance such as `sourceId`, `sourceType`, and `sourceLabel`.
+9. **Index** — Fuse.js keyword index is built by default; optional hybrid embeddings are built only when enabled.
+10. **Persist** — Chunks, metadata, source fingerprints, schedules, and ingestion stats are stored.
 
-## Output Types
+## Why Source Provenance Matters
 
-See `IngestionResult` and `IngestedChunk` in [API Reference](../api-reference/ingestion).
+Multi-source servers combine docs, GitHub repos, and internal content. Provenance keeps results explainable:
+
+- `metadata.url` tells the client where the content came from.
+- `sourceType` distinguishes docs, GitHub, web, llms, and custom sources.
+- `sourceLabel` helps TUI, GUI, verify, and stats display readable source names.
+
+This makes a composed server feel coherent without hiding where each answer came from.
+
+## Private Sources
+
+`--header` and `--cookie` are stored in the server definition for future reindexing. GitHub repositories can use `GITHUB_TOKEN` for API tree discovery and raw content fetches.
+
+When exporting for teams, use `--team --strip-key`. Include private source auth only with `--include-source-auth` and only for trusted destinations.
+
+## Incremental Reindexing
+
+Hoolix stores source fingerprints where available. Reindex can skip unchanged sources, force a full refresh, or run all due schedules:
+
+```bash
+hoolix reindex my-docs --yes
+hoolix reindex my-docs --force --yes
+hoolix reindex --due --json
+```
+
+## Protection And Resilience
+
+- User-agent rotation and retry backoff.
+- Curl fallback for difficult fetches.
+- GitHub-aware raw and tree discovery.
+- Token-aware private GitHub support.
+- Source health surfaced in `doctor` and `verify`.
+- Progress events shared by CLI, TUI, and GUI.
 
 ## See Also
 
+- [Creating Servers](../guides/creating-servers)
+- [API Reference: Ingestion](../api-reference/ingestion)
 - [RAG and MCP Tools](./rag-and-tools)
-- [Guides: Multi-page llms](../guides/multi-page-llms)
-- Source: [pipeline, fetchers, chunker, cleaners](https://github.com/JayLLM/hoolix/tree/main/src/ingestion) on GitHub

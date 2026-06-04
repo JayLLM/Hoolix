@@ -3,51 +3,96 @@ sidebar_label: Common Issues
 sidebar_position: 1
 ---
 
-# FAQ & Troubleshooting
+# FAQ And Troubleshooting
 
-## "chunks.json missing" or RAG returns no results
+## The TUI Did Not Open
 
-**Cause**: Registry `chunkCount` > 0 but `data/chunks.json` absent or empty (partial create, manual deletion, failed reindex).
+The TUI requires an interactive terminal. In CI, pipes, or terminals without raw-mode support, Hoolix prints CLI help instead.
 
-**Fix**:
+Use CLI commands directly:
 
 ```bash
+hoolix trial
+hoolix list
+hoolix gui
+```
+
+## `chunks.json missing` Or Empty Results
+
+The registry exists but the index data is missing or empty.
+
+```bash
+hoolix verify <slug>
 hoolix reindex <slug> --yes
 ```
 
-## Port already in use / "health check did not succeed"
+## Port Already In Use
 
-The port probe tries a 200-port range. If it still collides, another process grabbed it between probe and bind, or a previous `.runtime.json` is stale.
+```bash
+hoolix stop <slug>
+hoolix start <slug> --port 4000
+```
 
-**Fix**:
-- `hoolix stop <slug>`
-- Kill leftover processes if needed
-- Or specify `--port 4000` on start
+If needed, run `hoolix doctor` to inspect process and runtime state.
 
-## Auth fails even with the printed key
+## Auth Fails
 
-- Make sure you copied the **full** `mcp_...` value.
-- Header must be `Authorization: Bearer <key>` (some clients lowercase "bearer" — the middleware accepts it).
-- Try `X-MCP-Key` as fallback.
-- Restart the client after config change.
+- Copy the full `mcp_...` key.
+- Use `Authorization: Bearer <key>` or `X-MCP-Key: <key>`.
+- Restart the MCP client after config changes.
+- Re-run `hoolix connect <slug> --client <name>`.
+- If you rotated the key, restart the server.
 
-## Binary won't start on Windows after build
+## Private Source Fetch Fails
 
-Most common historical cause: static import of `jsdom` / css-tree at top level pulled in `data/patch.json` that isn't present in the compiled tree.
+Use headers, cookies, or GitHub token access:
 
-**Fix applied**: `htmlToMarkdown` now uses `createRequire` lazily inside the function. Rebuild with current source.
+```bash
+hoolix create "Private Docs" --url https://docs.example.com/llms.txt --header "Authorization: Bearer $TOKEN" --yes
+export GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
+```
 
-Also confirm you used `bun build --compile --minify`.
+Then force a refresh:
 
-## "No llms.txt found" on a site that clearly has one in browser
+```bash
+hoolix reindex <slug> --force --yes
+```
 
-Some sites return 404 or empty to default `node-fetch` UA but succeed for curl / real browsers.
+## Stdio Client Config Does Not Work
 
-hoolix rotates a few UAs + sends `Accept: text/markdown` during discovery. If it still fails, file an issue with the exact URL and `hoolix doctor` output.
+Generate the config again and use the JSON exactly:
+
+```bash
+hoolix start <slug> --transport stdio --json
+```
+
+For HTTP clients, use:
+
+```bash
+hoolix start <slug>
+hoolix connect <slug> --client generic --json
+```
+
+## Scheduled Reindex Did Not Run
+
+Schedules are local metadata. You still need a scheduler or automation runner to call:
+
+```bash
+hoolix reindex --due --json
+```
+
+## Source Plugin Not Found
+
+Run:
+
+```bash
+hoolix doctor
+```
+
+Then add a JSON manifest to the Hoolix `source-plugins` directory or set `HOOLIX_SOURCE_PLUGIN_DIR`.
 
 ## See Also
 
+- [Fetch and Protection](./fetch-and-protection)
 - [Windows Specific](./windows-specific)
-- [Fetch & Protection](./fetch-and-protection)
-- [Binary Size](./binary-size-and-performance)
-- [verify command](../guides/reindexing-and-verify)
+- [Reindexing and Verify](../guides/reindexing-and-verify)

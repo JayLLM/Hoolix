@@ -5,7 +5,9 @@ sidebar_position: 5
 
 # MCP Host API Reference
 
-## HostOptions
+Hoolix hosts each server over authenticated Streamable HTTP by default and can also produce stdio client configuration.
+
+## HTTP HostOptions
 
 ```ts
 export interface HostOptions {
@@ -13,7 +15,7 @@ export interface HostOptions {
   port: number;
   dataDir: string;
   authKey: string;
-  bindHost?: string; // defaults to '127.0.0.1'
+  bindHost?: string;
 }
 ```
 
@@ -23,55 +25,76 @@ export interface HostOptions {
 export async function startHostedServer(opts: HostOptions): Promise<void>;
 ```
 
-- Loads RAG for the slug
-- Creates `McpServer` + three tools (search / read / toc)
-- Wraps each tool handler with `MCP_TOOL_TIMEOUT_MS` (default 15000ms) and returns actionable timeout/error text instead of letting clients hang
-- Creates Hono app, registers unauthenticated `/health` first
-- Registers auth middleware **only** on `/mcp`
-- Connects `WebStandardStreamableHTTPServerTransport`
-- Writes `.runtime.json`
-- Serves via `@hono/node-server`
-- Handles SIGTERM/SIGINT for cleanup
+The host:
 
-Exposed for both direct execution (dev) and the `__internal-host` packaged path.
+- Loads the RAG index for the slug.
+- Creates the MCP server and documentation tools.
+- Registers unauthenticated `/health`.
+- Protects `/mcp` with per-server auth.
+- Applies tool timeouts and response guards.
+- Applies persistent rate limiting.
+- Writes audit events and usage analytics.
+- Serves Streamable HTTP through Hono.
+- Writes runtime metadata for process management.
 
-## Direct Execution Guard
+## Stdio Transport
 
-At module load time (bottom of `host.ts`):
-
-```ts
-if (
-  process.argv.includes('--slug') &&
-  process.argv.includes('--port') &&
-  process.argv.includes('--data-dir') &&
-  process.argv.includes('--auth-key')
-) {
-  parseArgs().then(startHostedServer)...;
-}
+```bash
+hoolix start <slug> --transport stdio --json
 ```
 
-This is the mechanism that makes the self-contained binary model work.
+Stdio mode is for clients that spawn a local command instead of connecting to an HTTP endpoint. The CLI prints a JSON configuration suitable for client setup or automation.
 
 ## Auth
 
-Middleware accepts:
+HTTP MCP requests accept:
+
 - `Authorization: Bearer <key>`
 - `Authorization: bearer <key>`
 - `X-MCP-Key: <key>`
 
-Mismatch or missing → 401 JSON.
+`/health` is intentionally unauthenticated. MCP tool calls require auth.
 
-`/health` is deliberately outside the middleware.
+Rotate keys with:
 
-Host logs mask auth keys. Full keys are emitted only by explicit connection-producing commands such as `start` and `connect`.
+```bash
+hoolix rotate <slug>
+```
 
-## Tools Exposed to Clients
+Restart running hosts and reconnect clients after rotation.
 
-See [RAG and MCP Tools](../architecture/rag-and-tools) for descriptions and input schemas.
+## Tools
+
+Each server exposes:
+
+| Tool | Description |
+| --- | --- |
+| `search_documentation` | Search indexed chunks with source URLs, optional mode, and token budgeting |
+| `read_documentation_page` | Read a page or chunk by URL/title |
+| `get_table_of_contents` | Return source-aware table of contents entries |
+
+Search inputs may include token-aware limits such as `maxTokens` and `contextWindowTokens`.
+
+## Rate Limit, Audit, And Stats
+
+HTTP hosts enforce rate limits and persist state in the server data directory. Tool calls append audit entries and feed analytics:
+
+```bash
+hoolix audit <slug> --limit 20
+hoolix stats <slug> --days 7
+```
+
+Audit events are useful for security review. Stats are useful for understanding what agents actually ask.
+
+## Binary Host Model
+
+Packaged binaries self-spawn the internal host so `hoolix start <slug>` works without source files, `tsx`, Node, or Bun. Development mode uses the source host path.
+
+This invariant is critical for the install experience.
 
 ## See Also
 
-- [Architecture: Host & Process Model](../architecture/host-and-process)
-- [Guides: Authentication](../guides/authentication)
-- [Guides: Connecting Clients](../guides/connecting-clients)
-- Source: `src/mcp/host.ts`
+- [Architecture: Host and Process](../architecture/host-and-process)
+- [Authentication](../guides/authentication)
+- [Connecting Clients](../guides/connecting-clients)
+- [RAG and Tools](../architecture/rag-and-tools)

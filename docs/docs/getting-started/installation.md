@@ -5,7 +5,7 @@ sidebar_position: 1
 
 # Installation
 
-hoolix can be installed as a prebuilt native binary (recommended) or via npm / bun.
+Hoolix can be installed as a prebuilt native binary (recommended) or run through npm / bun for quick trials.
 
 ## Recommended: Prebuilt Binary (Windows, macOS, Linux)
 
@@ -42,15 +42,16 @@ hoolix doctor
 ## Alternative: npm / bun / bunx (no global binary)
 
 ```bash
-# Global via bun (fast)
-bun install -g hoolix
+# One-click demo without installing
+npx hoolix trial
+bunx hoolix trial
 
-# Or npm
+# Global via npm or bun
 npm install -g hoolix
-
-# Or run without install
-bunx hoolix create "My Docs" --url https://example.com/llms.txt --yes
+bun install -g hoolix
 ```
+
+For daily use, the prebuilt binary is still the best path because `hoolix start <slug>` and the default TUI work without needing source files or a runtime.
 
 ## From Source (developers)
 
@@ -68,10 +69,11 @@ See [Contributing](../contributing/development-setup) for full dev setup includi
 ```bash
 hoolix doctor --json   # machine readable
 hoolix --help
+hoolix
 ```
 
 :::tip
-The first `create` will download documentation and may take 10-120s depending on site size. Subsequent starts are fast.
+The first `create` or `trial` downloads source content and may take 10-120 seconds depending on site size. Subsequent starts are fast.
 :::
 
 ## See Also

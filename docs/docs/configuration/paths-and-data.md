@@ -5,44 +5,70 @@ sidebar_position: 2
 
 # Paths and Data Layout
 
-All user data uses `env-paths` (cross-platform, respects OS conventions).
+Hoolix uses OS-native data directories via `env-paths`.
 
 Typical locations:
 
 - **Windows**: `%APPDATA%\hoolix\...`
 - **macOS**: `~/Library/Application Support/hoolix/...`
-- **Linux**: `~/.local/share/hoolix/...` (or `$XDG_DATA_HOME`)
+- **Linux**: `~/.local/share/hoolix/...` or `$XDG_DATA_HOME`
 
-Run `hoolix doctor` to see the exact resolved paths on your machine.
+Run:
+
+```bash
+hoolix doctor
+```
+
+to see exact paths on your machine.
+
+## Override Data Directory
+
+```bash
+MCP_PORTAL_DATA_DIR=/tmp/hoolix-demo hoolix list
+```
+
+This is useful for tests, demos, and isolated automation.
 
 ## Per-Server Layout
 
-```
+```text
 servers/
   <slug>/
-    metadata.json          # ServerMetadata (Zod)
-    .runtime.json          # transient (pid, port, startedAt) - deleted on clean stop
+    metadata.json
+    audit.log
+    rate-state.json
+    .runtime.json
     data/
-      chunks.json          # array of IngestedChunk (the RAG corpus)
+      chunks.json
+      embeddings.json
 ```
 
-## Registry
+Some files appear only when relevant. For example, `embeddings.json` exists for hybrid servers, `.runtime.json` exists while running, and `rate-state.json` is written by HTTP hosts.
 
-```
+## Global Data
+
+```text
 data/
-  registry.json            # { version, servers: { slug: { slug, path } } }
-  config.json              # rarely used today
+  registry.json
+  config.json
+source-plugins/
+  *.json
 ```
 
-## Why This Design?
+Custom source plugin manifests can also live in `HOOLIX_SOURCE_PLUGIN_DIR`.
 
-- Survives binary upgrades (data is outside the exe).
-- Multiple servers coexist cleanly.
-- `delete` can just `fs.remove` the slug dir.
-- Validation can stat `chunks.json` without loading RAG.
+## Bundles
+
+Exports are `.hoolix.json` files:
+
+```bash
+hoolix export my-docs --team --strip-key --file my-docs.hoolix.json
+```
+
+Bundles contain metadata, definitions, chunks, and optional embeddings. Auth keys and source auth are controlled by export flags.
 
 ## See Also
 
-- `src/core/paths.ts`
-- [Doctor command](../getting-started/basic-usage)
-- [Contributing: where tests write temp data](../contributing/testing)
+- [Environment](./environment)
+- [Registry and Validation](./registry-and-validation)
+- [CLI Reference](../api-reference/cli)
