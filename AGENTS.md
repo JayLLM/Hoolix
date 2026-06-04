@@ -43,23 +43,32 @@ It must feel like a **production-grade, daily must-have** tool:
 
 ```
 src/
-├── index.ts                 # CLI dispatcher + all cmdXXX (hand-rolled)
-├── core/                    # paths (env-paths), config (Zod), registry (Zod + validation), errors, logger, updater, version
-├── ingestion/               # pipeline, fetchers (+ github.ts), cleaners (lazy), chunker (heading-aware), detectors, types
-├── rag/                     # store.ts (Fuse + optional hybrid lazy), types
+├── index.ts                 # CLI dispatcher (switch on argv[2]); add new command = one case + one file
+├── commands/                # One file per CLI command (create, connect, info, list, start, verify, …)
+├── core/                    # paths, config, registry (Zod), errors, logger, updater, version
+├── ingestion/               # pipeline, fetchers (+ github.ts), cleaners (lazy), chunker, detectors, types
+├── rag/                     # store.ts (Fuse + optional hybrid lazy), models.ts, types
 ├── mcp/
-│   └── host.ts              # MCP server (tools, Hono, auth, rate, audit). Exports startHostedServer. Static import in index helps bundler.
+│   ├── host.ts              # HTTP Streamable MCP server (tools, Hono, auth, rate, audit). Static import in index for bundler.
+│   └── stdio-host.ts        # Stdio MCP server (foreground, no auth, docs-rag only)
 ├── process/
-│   └── manager.ts           # ServerManager (spawn health, Windows-safe ps-list/tree-kill, runtime markers, __internal-host detection)
+│   └── manager.ts           # ServerManager (spawn, health, Windows-safe ps-list/tree-kill, __internal-host)
+├── app/
+│   ├── services/            # servers.ts, catalog.ts, credentials.ts, analytics.ts — shared business logic
+│   ├── contracts.ts         # TypeScript interfaces for service inputs/results
+│   └── events.ts            # AppProgressEvent + emitProgress
+├── catalog/
+│   └── templates.ts         # CatalogTemplateSchema: both docs-rag + mcp-server kinds; 9 official templates
+├── sources/                 # types.ts (ServerDefinitionSchema), registry.ts (CLI parsers), plugins.ts (custom)
 ├── tui/                     # index.tsx (pure-Node TUI, dynamic import only)
-└── utils/                   # (future small shared; currently empty)
+├── web/                     # Hono web GUI
+├── lib/                     # auth.ts, embedding.ts (shared utilities)
+└── ui/                      # format.ts (chalk helpers), help.ts (printHelp)
 
-bin/hoolix.js            # Shim (dist vs tsx)
-dist/                        # tsc (npm path)
+bin/hoolix.js                # Shim (dist vs tsx)
+dist/                        # tsc output (npm path)
 dist-bin/                    # bun build --compile (recommended)
 ```
-
-Empty dirs (`commands/`, `utils/`, `mcp/tools/`) are intentional placeholders — do not populate unless a focused ADR decides to refactor the monolithic CLI.
 
 ## Important Architectural Rules (Never Violate)
 
@@ -125,7 +134,34 @@ Empty dirs (`commands/`, `utils/`, `mcp/tools/`) are intentional placeholders �
 - Guards: response size cap + timeout wrapper on tool handlers.
 - Keys never logged except at explicit start time.
 
-### 9. Documentation as Code (Non-Negotiable)
+### 9. Two-Kind Template System (New Platform Invariant)
+
+Templates are typed as `kind: 'docs-rag'` or `kind: 'mcp-server'`. The kind determines the entire server lifecycle.
+
+**`docs-rag` kind** (original):
+- `createServer` runs ingestion → chunking → RAG indexing → HTTP host.
+- `verify` runs RAG quality checks + grounding.
+- `start` spawns an `__internal-host` HTTP server.
+- `connect` emits `{ type: 'streamable-http', url, headers }`.
+- Registry: `chunkCount > 0`, `vectorIndexed`, `ingestionStats`.
+
+**`mcp-server` kind** (new — config-only in Phase 1):
+- `createServer` skips ingestion entirely: stores run config + credentials, registers metadata.
+- Credentials stored in a separate `credentials.json` (0600, never in metadata.json) via `src/app/services/credentials.ts`.
+- `start` redirects users to `hoolix connect` (client spawns the process over stdio).
+- `connect` interpolates `{placeholder}` in the template's `server.args` and `server.env` using template inputs + loaded credentials, emits `{ command, args, env }` stdio config.
+- `verify` checks credentials present + runtime tool available; no RAG checks.
+- Registry: `serverKind: 'mcp-server'`, `credentialKeys: string[]`, `chunkCount: 0`.
+
+**Rules**:
+- Never run the ingestion pipeline for `mcp-server` kind.
+- Never put credential values in metadata.json — store key names only (`credentialKeys[]`).
+- Always check `meta.serverKind ?? 'docs-rag'` before RAG operations; skip gracefully for mcp-server.
+- `interpolateRunConfig()` is the single source of truth for substituting `{name}` placeholders.
+- When adding a new command that touches RAG, add a `serverKind === 'mcp-server'` guard.
+- Adding a new `mcp-server` template: add to `src/catalog/templates.ts` OFFICIAL_TEMPLATES array only.
+
+### 10. Documentation as Code (Non-Negotiable)
 - Every CLI/behavior change → update:
   - README (hero, table, quickstart, examples, limitations, "why").
   - Relevant `docs/docs/guides/*` + `getting-started/*`.

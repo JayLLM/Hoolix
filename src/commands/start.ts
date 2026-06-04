@@ -13,6 +13,31 @@ export async function cmdStart(args: string[], json: boolean): Promise<void> {
     process.exit(1);
   }
 
+  // ── mcp-server kind: config-only in Phase 1 ──────────────────────────────
+  // These servers are spawned by the client — no Hoolix HTTP host needed.
+  const metaEarly = await getServerMetadata(slug).catch(() => null);
+  if (metaEarly?.serverKind === 'mcp-server') {
+    const templateId = metaEarly.definition?.template?.id ?? 'unknown';
+    if (json) {
+      printJson({
+        ok:       false,
+        kind:     'mcp-server',
+        slug,
+        error:    `"${metaEarly.name}" uses stdio transport (${templateId}). Your MCP client spawns the process — no Hoolix host is needed.`,
+        next:     `hoolix connect ${slug}`,
+      });
+    } else {
+      printTitle('Stdio server', `"${metaEarly.name}" (${templateId})`);
+      console.log(`  ${ui.accent('○')} This server uses ${ui.accent('stdio transport')} — your MCP client spawns it on demand.`);
+      console.log(`  ${ui.muted('No Hoolix host process is needed.')}`);
+      console.log('');
+      printSection('Wire it into your client');
+      printCommand(`hoolix connect ${slug}`);
+      printCommand(`hoolix connect ${slug} --client claude-code --yes`);
+    }
+    process.exit(0);
+  }
+
   // ── stdio transport path ─────────────────────────────────────────────────
   // Runs the MCP server in-process over stdin/stdout (foreground, no spawn).
   // The MCP client spawns this process; stdout/stdin carry the MCP protocol.

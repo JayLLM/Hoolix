@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`hoolix connect` — full mcp-server kind support**: for `mcp-server` servers, `connect` loads `credentials.json`, interpolates `{placeholder}` in the template's `server.args` and `server.env`, and emits `{ command, args, env }` stdio config instead of HTTP streamable. Credentials are never echoed; unresolved placeholders surface a warning.
+- **Three new clients in `connect`**: `claude-code` (merges into `~/.claude/settings.json`, adds `type: 'stdio'` field), `vscode` (project-level `.vscode/mcp.json` with `servers` key, VS Code 1.99+), `codex` (OpenAI Codex CLI `~/.codex/config.json`). `detectPreferredClient()` now checks `claude-code` first.
+- **`--dry-run` flag on `connect`**: computes and prints the full config snippet without writing any files or creating backups.
+- **`hoolix start` graceful mcp-server exit**: for `mcp-server` kind servers, `start` prints an explanatory message and redirects to `hoolix connect` instead of attempting to spawn an HTTP host.
+- **`hoolix verify` mcp-server path**: skips all RAG checks for `mcp-server` kind; instead verifies template exists in catalog, credentials are stored, required inputs are present, and the runtime command (`npx`/`uvx`) is available. Supports `--json`.
+- **`hoolix info` kind-aware display**: for `mcp-server` kind, shows template, transport, interpolated run config (env keys shown as `KEY=<set>`, never values), stored credential keys, and template inputs instead of chunk/index/freshness fields.
+- **`hoolix list` Kind column**: new `Kind` column shows `docs-rag` or `mcp-server`; `mcp-server` rows show `stdio` in the Chunks column and template ID in the Source column.
+- **`hoolix templates info` enhanced**: shows `Kind`, `Server run config`, `Credentials` (with env-var auto-detection hints), `Inputs` with `--input` flag examples, and kind-appropriate create command examples.
+- **AGENTS.md Rule 9: Two-Kind Template System** — documents the invariants for `docs-rag` vs `mcp-server` kind (when to run ingestion, where credentials live, how to guard RAG operations).
+
 ## [0.0.1-beta.11] - 2026-06-04
 
 ### Added

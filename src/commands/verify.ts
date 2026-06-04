@@ -1,10 +1,13 @@
 import chalk from 'chalk';
+import { execSync } from 'node:child_process';
 import { getServerMetadata } from '../core/registry.js';
 import { createRAGForServer } from '../rag/store.js';
 import { logger } from '../core/logger.js';
 import { isHybridModel } from '../rag/models.js';
 import { verifyServer } from '../app/services/servers.js';
-import { getFreshness, printTitle, printSection, printDetails, truncate, statusText, ui } from '../ui/format.js';
+import { loadCredentials } from '../app/services/credentials.js';
+import { getTemplate } from '../app/services/catalog.js';
+import { getFreshness, printTitle, printSection, printDetails, printCommand, truncate, statusText, ui } from '../ui/format.js';
 import type { EmbeddingModel } from '../rag/models.js';
 import { getServerDataDir } from '../core/paths.js';
 import fs from 'fs-extra';
@@ -23,6 +26,12 @@ export async function cmdVerify(args: string[]): Promise<void> {
   } catch {
     logger.error(`Server "${slug}" not found.`);
     process.exit(1);
+  }
+
+  // ── mcp-server kind: credential + config verification ────────────────────
+  if ((meta.serverKind ?? 'docs-rag') === 'mcp-server') {
+    await verifMcpServer(slug, meta, args.includes('--json'));
+    return;
   }
 
   // ── JSON output path ──────────────────────────────────────────────────────
@@ -207,4 +216,98 @@ export async function cmdVerify(args: string[]): Promise<void> {
 
   console.log('');
   console.log(`  ${ui.success('✓')} Verify complete. All results include source URLs for grounding.`);
+}
+
+// ── mcp-server verification ───────────────────────────────────────────────────
+
+async function verifMcpServer(slug: string, meta: any, json: boolean): Promise<void> {
+  const templateId = meta.definition?.template?.id ?? 'unknown';
+  const credentialKeys: string[] = meta.credentialKeys ?? [];
+  const checks: Array<{ name: string; ok: boolean; detail: string }> = [];
+
+  // 1. Template exists in catalog
+  let template: any = null;
+  try {
+    template = await getTemplate(templateId);
+    checks.push({ name: 'Template in catalog', ok: true, detail: template.name });
+  } catch {
+    checks.push({ name: 'Template in catalog', ok: false, detail: `"${templateId}" not found` });
+  }
+
+  // 2. Credentials stored
+  const storedCreds = await loadCredentials(slug);
+  const storedKeys = Object.keys(storedCreds);
+  const requiredCreds: string[] = template?.credentials.filter((c: any) => c.required).map((c: any) => c.name) ?? credentialKeys;
+  const missingCreds = requiredCreds.filter((k) => !storedCreds[k]);
+  if (requiredCreds.length === 0) {
+    checks.push({ name: 'Credentials', ok: true, detail: 'none required' });
+  } else if (missingCreds.length === 0) {
+    checks.push({ name: 'Credentials', ok: true, detail: `${storedKeys.length} stored (${storedKeys.join(', ')})` });
+  } else {
+    checks.push({ name: 'Credentials', ok: false, detail: `missing: ${missingCreds.join(', ')}` });
+  }
+
+  // 3. Template inputs present
+  const templateInputs = meta.definition?.template?.inputs ?? {};
+  const requiredInputs: string[] = template?.inputs.filter((i: any) => i.required).map((i: any) => i.name) ?? [];
+  const missingInputs = requiredInputs.filter((k) => !templateInputs[k]);
+  if (requiredInputs.length === 0) {
+    checks.push({ name: 'Template inputs', ok: true, detail: 'none required' });
+  } else if (missingInputs.length === 0) {
+    checks.push({ name: 'Template inputs', ok: true, detail: requiredInputs.map((k) => `${k}=${templateInputs[k]}`).join(', ') });
+  } else {
+    checks.push({ name: 'Template inputs', ok: false, detail: `missing: ${missingInputs.join(', ')}` });
+  }
+
+  // 4. Runtime tool available
+  const command = template?.server?.command ?? 'npx';
+  try {
+    execSync(`${command === 'npx' ? 'npx --version' : `which ${command}`}`, { stdio: 'ignore' });
+    checks.push({ name: `Runtime (${command})`, ok: true, detail: 'available' });
+  } catch {
+    checks.push({ name: `Runtime (${command})`, ok: false, detail: `"${command}" not found — install Node.js / uv as needed` });
+  }
+
+  const allOk = checks.every((c) => c.ok);
+
+  if (json) {
+    console.log(JSON.stringify({
+      slug,
+      name: meta.name,
+      kind: 'mcp-server',
+      templateId,
+      checks,
+      ok: allOk,
+      next: allOk ? `hoolix connect ${slug}` : `Fix issues above, then: hoolix connect ${slug}`,
+    }, null, 2));
+    return;
+  }
+
+  printTitle('Verify', `${meta.name} (${slug})`);
+  printDetails([
+    ['Kind',     'MCP server'],
+    ['Template', `${template?.name ?? templateId} (${templateId})`],
+    ['Result',   allOk ? ui.success('all checks passed') : ui.warning('issues found')],
+  ]);
+  console.log('');
+
+  printSection('Checks');
+  for (const check of checks) {
+    const icon = check.ok ? ui.success('✓') : ui.warning('!');
+    console.log(`  ${icon} ${check.name.padEnd(24)}  ${check.detail}`);
+  }
+  console.log('');
+
+  if (allOk) {
+    console.log(`  ${ui.success('✓')} Server is ready to use.`);
+    printCommand(`hoolix connect ${slug}`);
+  } else {
+    const missing = checks.filter((c) => !c.ok);
+    for (const m of missing) {
+      console.log(`  ${ui.warning('!')} ${m.name}: ${m.detail}`);
+    }
+    console.log('');
+    console.log(`  Fix the issues above, then: hoolix connect ${slug}`);
+  }
+  console.log('');
 }
