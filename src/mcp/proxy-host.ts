@@ -5,13 +5,13 @@
  * as a persistent child process, then exposes it over authenticated HTTP with the same
  * auth, rate-limiting, and audit middleware as host.ts.
  *
- * This enables sharing the same underlying server across multiple AI clients,
- * remote access, and unified observability for any mcp-server template.
- *
- * Limitations (Phase 1):
- *   - Supports synchronous JSON-RPC request/response only (no SSE streaming responses).
- *   - Batch JSON-RPC requests are supported.
- *   - Notifications (no id) are forwarded; no response is returned.
+ * Features:
+ *   - Auto-restart on child exit (exponential backoff, max MAX_RESTARTS attempts)
+ *   - 30-second health ping to detect silent child hangs
+ *   - SSE response wrapping: when client sends Accept: text/event-stream, the
+ *     synchronous JSON-RPC response is streamed as an SSE event (phase 1 compatibility)
+ *   - Batch JSON-RPC requests supported
+ *   - Notifications (no id) forwarded without response
  *
  * See AGENTS.md Rule 9 "Two-Kind Template System" and "Proxy Mode".
  */
@@ -36,6 +36,8 @@ export interface ProxyHostOptions {
 }
 
 const PROXY_REQUEST_TIMEOUT_MS = 30_000;
+const MAX_RESTARTS             = 5;
+const HEALTH_PING_INTERVAL_MS  = 30_000;
 
 function maskSecret(value: string, visible = 6): string {
   if (!value) return '';
@@ -45,6 +47,7 @@ function maskSecret(value: string, visible = 6): string {
 
 /**
  * Manages a persistent stdio child process with JSON-RPC request/response multiplexing.
+ * Auto-restarts on unexpected child exit (exponential backoff, max MAX_RESTARTS).
  * Responses are matched to pending requests by JSON-RPC id.
  */
 class StdioJsonRpcProxy {
@@ -52,6 +55,8 @@ class StdioJsonRpcProxy {
   private rl: readline.Interface | null = null;
   private pending = new Map<string | number, (msg: unknown) => void>();
   private _dead = false;
+  private restartCount = 0;
+  private healthTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private readonly command: string,
@@ -60,6 +65,23 @@ class StdioJsonRpcProxy {
   ) {}
 
   async start(): Promise<void> {
+    await this._spawnChild();
+
+    // 30-second health monitoring: send ping → expect pong or any response
+    this.healthTimer = setInterval(() => {
+      if (!this.isAlive) return;
+      // Fire-and-forget: if ping hangs for >timeout, the pending map cleans up
+      this.send({ jsonrpc: '2.0', id: `__health-${Date.now()}`, method: 'ping', params: {} })
+        .catch(() => {
+          // ping failure is expected for servers that don't implement ping
+        });
+    }, HEALTH_PING_INTERVAL_MS);
+
+    // Don't let health timer prevent process exit
+    if (this.healthTimer.unref) this.healthTimer.unref();
+  }
+
+  private async _spawnChild(): Promise<void> {
     // On Windows, bare 'npx' needs shell resolution
     const cmd = process.platform === 'win32' && this.command === 'npx' ? 'npx.cmd' : this.command;
 
@@ -94,18 +116,50 @@ class StdioJsonRpcProxy {
       }
     });
 
-    this.child.on('exit', (code, signal) => {
-      this._dead = true;
-      logger.error(`Proxy child exited: code=${code ?? 'null'}, signal=${signal ?? 'null'}`);
-      const err = { jsonrpc: '2.0', id: null, error: { code: -32000, message: 'Server process exited unexpectedly' } };
-      for (const [, resolve] of this.pending) resolve(err);
-      this.pending.clear();
+    this.child.on('exit', (exitCode, exitSignal) => {
+      logger.error(`Proxy child exited: code=${exitCode ?? 'null'}, signal=${exitSignal ?? 'null'}`);
       this.rl?.close();
+      this._tryRestart(exitCode, exitSignal);
     });
 
-    // Brief wait for child to boot before declaring ready
+    // Brief wait for child to boot
     await new Promise<void>((r) => setTimeout(r, 600));
-    if (this._dead) throw new Error('Proxy child exited immediately. Check host.log for details.');
+
+    if (this._dead) {
+      throw new Error('Proxy child exited immediately. Check host.log for details.');
+    }
+  }
+
+  private _tryRestart(_code: number | null, _signal: string | null): void {
+    if (this.restartCount >= MAX_RESTARTS) {
+      logger.error(`Proxy child has exited ${MAX_RESTARTS} times — giving up. Proxy will remain in degraded state.`);
+      this._dead = true;
+      // Fail all pending requests
+      const err = { jsonrpc: '2.0', id: null, error: { code: -32000, message: 'Server process exited after too many restarts' } };
+      for (const [, resolve] of this.pending) resolve(err);
+      this.pending.clear();
+      return;
+    }
+
+    // Fail existing pending requests while we restart
+    const restartErr = { jsonrpc: '2.0', id: null, error: { code: -32000, message: 'Server process restarting' } };
+    for (const [, resolve] of this.pending) resolve(restartErr);
+    this.pending.clear();
+
+    const delay = Math.min(16000, 1000 * 2 ** this.restartCount);
+    this.restartCount++;
+    logger.warn(`Proxy child restarting (attempt ${this.restartCount}/${MAX_RESTARTS}) in ${delay}ms…`);
+
+    setTimeout(async () => {
+      if (this._dead) return;
+      try {
+        await this._spawnChild();
+        logger.info(`Proxy child restarted successfully (attempt ${this.restartCount})`);
+      } catch (e: any) {
+        logger.error(`Proxy child restart failed: ${e?.message || e}`);
+        this._tryRestart(null, null);
+      }
+    }, delay);
   }
 
   get isAlive(): boolean {
@@ -150,10 +204,38 @@ class StdioJsonRpcProxy {
 
   kill(): void {
     try {
+      if (this.healthTimer) clearInterval(this.healthTimer);
+      this._dead = true;
       this.rl?.close();
       if (this.child && !this.child.killed) this.child.kill('SIGTERM');
     } catch {}
   }
+}
+
+// ── SSE helper ────────────────────────────────────────────────────────────────
+
+/**
+ * Wrap a JSON-RPC response in SSE format for clients that send
+ * `Accept: text/event-stream`. Per Streamable HTTP spec phase 1:
+ * single response sent as `data:` event, then stream closed.
+ */
+function jsonRpcToSSE(response: unknown): Response {
+  const encoder = new TextEncoder();
+  const json = JSON.stringify(response);
+  const body = new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode(`data: ${json}\n\n`));
+      controller.close();
+    },
+  });
+  return new Response(body, {
+    headers: {
+      'Content-Type':  'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection':    'keep-alive',
+      'X-Accel-Buffering': 'no',
+    },
+  });
 }
 
 export async function startProxyHost(opts: ProxyHostOptions): Promise<void> {
@@ -190,15 +272,15 @@ export async function startProxyHost(opts: ProxyHostOptions): Promise<void> {
   logger.info(`Proxy child started (pid=${proxy.childPid ?? 'unknown'}, template=${templateId})`);
 
   // ── Rate limiter (matches host.ts exactly) ─────────────────────────────────
-  const RATE_LIMIT = Math.max(1, parseInt(process.env.MCP_RATE_LIMIT || '120', 10));
+  const RATE_LIMIT     = Math.max(1, parseInt(process.env.MCP_RATE_LIMIT || '120', 10));
   const RATE_WINDOW_MS = Math.max(1000, parseInt(process.env.MCP_RATE_WINDOW_SEC || '60', 10) * 1000);
-  const rateStatePath = path.join(getServerDataDir(slug), 'rate-state.json');
-  let reqCount = 0;
+  const rateStatePath  = path.join(getServerDataDir(slug), 'rate-state.json');
+  let reqCount    = 0;
   let windowStart = Date.now();
   try {
     const state = await fs.readJson(rateStatePath);
     if (typeof state.windowStart === 'number' && typeof state.reqCount === 'number') {
-      reqCount = state.reqCount;
+      reqCount    = state.reqCount;
       windowStart = state.windowStart;
     }
   } catch {}
@@ -214,7 +296,7 @@ export async function startProxyHost(opts: ProxyHostOptions): Promise<void> {
   }
 
   // ── Audit (matches host.ts exactly) ─────────────────────────────────────────
-  const auditPath = path.join(getServerDataDir(slug), 'audit.log');
+  const auditPath      = path.join(getServerDataDir(slug), 'audit.log');
   const MAX_AUDIT_LINES = 5000;
   async function audit(tool: string, details: Record<string, unknown>) {
     try {
@@ -222,7 +304,7 @@ export async function startProxyHost(opts: ProxyHostOptions): Promise<void> {
       await fs.appendFile(auditPath, line).catch(() => {});
       try {
         const content = await fs.readFile(auditPath, 'utf8').catch(() => '');
-        const lines = content.split('\n').filter(Boolean);
+        const lines   = content.split('\n').filter(Boolean);
         if (lines.length > MAX_AUDIT_LINES) {
           await fs.writeFile(auditPath, lines.slice(-Math.floor(MAX_AUDIT_LINES * 0.8)).join('\n') + '\n').catch(() => {});
         }
@@ -234,12 +316,19 @@ export async function startProxyHost(opts: ProxyHostOptions): Promise<void> {
   const app = new Hono();
 
   app.get('/health', (c) => {
-    return c.json({ status: proxy.isAlive ? 'ok' : 'degraded', server: slug, mode: 'proxy', template: templateId });
+    return c.json({
+      status:     proxy.isAlive ? 'ok' : 'degraded',
+      server:     slug,
+      mode:       'proxy',
+      template:   templateId,
+      restarts:   (proxy as any).restartCount ?? 0,
+    });
   });
 
+  // Auth + rate-limit middleware
   app.use('/mcp', async (c, next) => {
     const authHeader = c.req.header('Authorization');
-    const headerKey =
+    const headerKey  =
       authHeader?.startsWith('Bearer ') || authHeader?.startsWith('bearer ')
         ? authHeader.replace(/^Bearer\s+/i, '')
         : c.req.header('X-MCP-Key');
@@ -263,12 +352,18 @@ export async function startProxyHost(opts: ProxyHostOptions): Promise<void> {
         503,
       );
     }
+
     let body: unknown;
     try {
       body = await c.req.json();
     } catch {
       return c.json({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error — invalid JSON body' } }, 400);
     }
+
+    // Detect SSE preference (Streamable HTTP spec: client may send Accept: text/event-stream)
+    const acceptHeader = c.req.header('Accept') ?? '';
+    const preferSSE    = acceptHeader.includes('text/event-stream');
+
     try {
       if (Array.isArray(body)) {
         const responses = await Promise.all(
@@ -277,19 +372,26 @@ export async function startProxyHost(opts: ProxyHostOptions): Promise<void> {
             return proxy.send(req);
           }),
         );
-        return c.json(responses.filter((r) => r !== null));
+        const filtered = responses.filter((r) => r !== null);
+        if (preferSSE) return jsonRpcToSSE(filtered);
+        return c.json(filtered);
       }
+
       const req = body as any;
       await audit('proxy_request', { method: req?.method, id: req?.id });
       const response = await proxy.send(req);
       if (response === null) return new Response(null, { status: 204 });
+      if (preferSSE) return jsonRpcToSSE(response);
       return c.json(response);
     } catch (e: any) {
       await audit('proxy_error', { reason: e?.message || String(e) });
-      return c.json(
-        { jsonrpc: '2.0', id: (body as any)?.id ?? null, error: { code: -32603, message: e?.message || 'Internal proxy error' } },
-        500,
-      );
+      const errResponse = {
+        jsonrpc: '2.0',
+        id:      (body as any)?.id ?? null,
+        error:   { code: -32603, message: e?.message || 'Internal proxy error' },
+      };
+      if (preferSSE) return jsonRpcToSSE(errResponse);
+      return c.json(errResponse, 500);
     }
   });
 
@@ -307,16 +409,17 @@ export async function startProxyHost(opts: ProxyHostOptions): Promise<void> {
 
   // ── Graceful shutdown ─────────────────────────────────────────────────────────
   const shutdown = async () => {
-    logger.info(`Shutting down proxy host for "${slug}"...`);
+    logger.info(`Shutting down proxy host for "${slug}"…`);
     proxy.kill();
     try { await fs.remove(runtimePath); } catch {}
     process.exit(0);
   };
   process.on('SIGTERM', shutdown);
-  process.on('SIGINT', shutdown);
+  process.on('SIGINT',  shutdown);
 
   logger.info(`Proxy host ready at http://${bindHost}:${port}/mcp (template: ${templateId})`);
   logger.info(`Auth header required: Authorization: Bearer ${maskSecret(authKey)}`);
+  logger.info(`Auto-restart enabled: max ${MAX_RESTARTS} attempts with exponential backoff`);
 
   serve({ fetch: app.fetch, port, hostname: bindHost });
 }

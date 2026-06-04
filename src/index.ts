@@ -34,7 +34,7 @@ async function main() {
   await loadConfig();
 
   // Background update check — non-blocking, best-effort, suppressed in --json mode.
-  if (!jsonOutput && cmd !== 'update' && cmd !== '__internal-host' && cmd !== '__internal-proxy' && process.env.MCP_PORTAL_SKIP_UPDATE_CHECK !== '1') {
+  if (!jsonOutput && cmd !== 'update' && cmd !== '__internal-host' && cmd !== '__internal-proxy' && cmd !== 'completion' && process.env.MCP_PORTAL_SKIP_UPDATE_CHECK !== '1') {
     checkForUpdate().then((info) => {
       if (info.isOutdated) {
         logger.warn(`A new version of hoolix is available: ${info.latestVersion} (you have ${info.currentVersion})`);
@@ -161,8 +161,20 @@ async function main() {
       await cmdImport(args, jsonOutput);
       return;
     }
+    case 'bundle': {
+      const { cmdBundle } = await import('./commands/bundle.js');
+      await cmdBundle(args, jsonOutput);
+      return;
+    }
 
     // ── System ────────────────────────────────────────────────────────────
+    case 'completion':
+    case 'completions': {
+      const { cmdCompletion } = await import('./commands/completion.js');
+      await cmdCompletion(args);
+      return;
+    }
+
     case 'doctor': {
       const { cmdDoctor } = await import('./commands/doctor.js');
       await cmdDoctor(jsonOutput);

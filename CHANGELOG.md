@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Shell completions** (`hoolix completion bash|zsh|fish|powershell`) — generates ready-to-source tab-completion scripts. Dynamic slug and template ID completion via `hoolix list --json` and `hoolix templates list --json`. Update check suppressed during completion output.
+- **Multi-server bundle** (`hoolix bundle export|import`) — export multiple servers into a single `.hoolix.json` bundle; import restores all servers with fresh auth keys and prints `hoolix secrets set` instructions for mcp-server credentials. Format: `version: 1, type: 'multi-server-bundle'`. Credentials are never exported (same invariant as single-server export).
+- **6 new official templates** (total now 11): `sequential-thinking`, `brave-search`, `slack`, `puppeteer`, `google-maps` (all npm-based mcp-server kind), each with credential definitions, tags, and `proxyable: true`. Brings the official catalog from 5 to 11 templates.
+- **`hoolix list` proxy status** — Status column now shows `proxy:PORT` for mcp-server kind servers running in proxy mode (concurrent status checks; zero change for docs-rag servers).
+- **`hoolix doctor` proxy-mode check** — reports which servers are currently running in proxy mode; always passes (informational).
+- **Proxy auto-restart** — `StdioJsonRpcProxy` automatically restarts the child process on unexpected exit with exponential backoff (1s → 2s → 4s → 8s → 16s, max 5 attempts). After max restarts, proxy marks itself degraded and returns HTTP 503.
+- **Proxy health monitoring** — 30-second fire-and-forget `ping` to detect silent child hangs; failures are expected for servers that don't implement ping and are silently ignored.
+- **Proxy SSE support (phase 1)** — when a client sends `Accept: text/event-stream`, the synchronous JSON-RPC response is wrapped as an SSE `data:` event and streamed with correct headers. Enables compatibility with SSE-expecting MCP clients without full bidirectional streaming.
+- **TUI proxy detail panel** — mcp-server kind detail shows `running (proxy on :PORT)` + Proxy URL when in proxy mode; `s` key stops the proxy; `c` copies HTTP config when proxied.
+- **TUI empty-state guidance** updated to lead with `hoolix install` commands (filesystem, github-api, brave-search) rather than generic create.
+- **`STABILITY.md`** — documents versioning promises (semver), stable CLI surface, stable JSON schema, stable on-disk file formats, and upgrade policy for v1.0.
+
+### Changed
+
+- `hoolix list` — replaced `Chunks` column header with `Status` for mcp-server kind rows (shows `proxy:PORT`, `running`, or `stdio`).
+- `hoolix doctor` — added `proxy-mode` informational check after `uvx` check.
+- `hoolix start` (mcp-server, no proxy) — hint message now shows `proxy:PORT` info in bold when similar servers exist in proxy mode.
+
 ## [0.0.1-beta.16] - 2026-06-04
 
 ### Added

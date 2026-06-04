@@ -13,7 +13,7 @@ ${chalk.bold('Server management')}
   ${ui.accent('create')} [name]         Create from --url, --source, or --template (docs-rag + mcp-server kinds)
   ${ui.accent('install')} <template> [values…] Sugar for create --template (positional inputs; --name, --yes)
   ${ui.accent('templates')}             Browse official templates: list, info <id> (--json)
-  ${ui.accent('list')}                  List registered servers (--json)
+  ${ui.accent('list')}                  List registered servers with live proxy status (--json)
   ${ui.accent('info')} <slug>           Show definition, sources/config, index, and status (--json)
   ${ui.accent('delete')} <slug>         Remove server and data (--yes, --json)
 
@@ -40,23 +40,29 @@ ${chalk.bold('Observability')}
 ${chalk.bold('Import / Export')}
   ${ui.accent('export')} <slug>         Export a .hoolix.json bundle (--team, --strip-key, --file, --json)
   ${ui.accent('import')} --file <path>  Import a .hoolix.json bundle (--slug, --yes, --json)
+  ${ui.accent('bundle export')} [slugs…] Export multiple servers into one file (--all, --output, --team, --json)
+  ${ui.accent('bundle import')} <file>  Import a multi-server bundle (--yes, --json)
 
 ${chalk.bold('System')}
+  ${ui.accent('completion')} <shell>    Generate tab-completion script (bash | zsh | fish | powershell)
   ${ui.accent('gui')}                   Launch the local web dashboard (token auth, catalog, stats, playground)
-  ${ui.accent('doctor')} [--json]       Diagnose installation, paths, config, and runtime
+  ${ui.accent('doctor')} [--json]       Diagnose installation, paths, config, runtime, and proxy status
   ${ui.accent('update')}                Check for and install the latest version (--json)
   ${ui.accent('uninstall')} [--yes]     Completely remove hoolix, servers/data, binary, and PATH entries
   ${ui.accent('version')}               Print the current version
 
-${chalk.bold('Examples — MCP server templates (new)')}
+${chalk.bold('Examples — MCP server templates')}
   ${ui.accent('›')} hoolix templates list
-  ${ui.accent('›')} hoolix templates info filesystem
-  ${ui.accent('›')} hoolix start my-github --proxy           (wrap mcp-server behind HTTP for sharing / remote)
+  ${ui.accent('›')} hoolix templates info brave-search
   ${ui.accent('›')} hoolix install filesystem /Users/jay/projects --yes
-  ${ui.accent('›')} hoolix install github-api --yes            (credentials prompted interactively)
+  ${ui.accent('›')} hoolix install github-api --yes                (credentials prompted interactively)
+  ${ui.accent('›')} hoolix install brave-search --yes              (Brave API key prompted)
+  ${ui.accent('›')} hoolix install slack --yes                     (bot token + team ID prompted)
+  ${ui.accent('›')} hoolix install sequential-thinking --name "Thinking" --yes
   ${ui.accent('›')} hoolix install memory --name "My Memory" --yes
   ${ui.accent('›')} hoolix install postgres --credential databaseUrl=postgresql://… --yes
   ${ui.accent('›')} hoolix create "My DB" --template postgres --credential databaseUrl=postgresql://… --yes --json
+  ${ui.accent('›')} hoolix start my-github --proxy                 (wrap mcp-server behind HTTP for sharing / remote)
   ${ui.accent('›')} hoolix connect my-files --client claude
   ${ui.accent('›')} hoolix connect my-github --client claude-code --yes
   ${ui.accent('›')} hoolix connect my-files --dry-run
@@ -68,6 +74,14 @@ ${chalk.bold('Examples — MCP server templates (new)')}
   ${ui.accent('›')} hoolix secrets remove my-github githubToken --yes
   ${ui.accent('›')} hoolix export my-github --file my-github.hoolix.json
   ${ui.accent('›')} hoolix import my-github.hoolix.json --yes
+  ${ui.accent('›')} hoolix bundle export my-docs my-github --output team.hoolix.json
+  ${ui.accent('›')} hoolix bundle import team.hoolix.json --yes
+
+${chalk.bold('Examples — Shell completions')}
+  ${ui.accent('›')} eval "$(hoolix completion bash)"              (add to ~/.bashrc)
+  ${ui.accent('›')} eval "$(hoolix completion zsh)"               (add to ~/.zshrc)
+  ${ui.accent('›')} hoolix completion fish | source               (or save to completions dir)
+  ${ui.accent('›')} hoolix completion powershell | Invoke-Expression  (add to $PROFILE)
 
 ${chalk.bold('Examples — Docs RAG (existing)')}
   ${ui.accent('›')} hoolix create "React Docs" --template docs-rag --url https://react.dev/llms.txt --yes
@@ -77,10 +91,11 @@ ${chalk.bold('Examples — Docs RAG (existing)')}
   ${ui.accent('›')} hoolix connect my-docs --client cursor
 
 ${chalk.bold('Status')}
-  ${ui.success('✓')} Two template kinds: docs-rag (RAG search) and mcp-server (filesystem, GitHub, Postgres, SQLite, memory)
+  ${ui.success('✓')} 14 official templates: docs-rag, github-docs, filesystem, github-api, postgres, sqlite, memory, sequential-thinking, brave-search, slack, puppeteer, google-maps, and more
   ${ui.success('✓')} Credentials stored separately in credentials.json (0600) with env-var auto-detection
   ${ui.success('✓')} llms.txt-first, GitHub-aware ingestion; Fuse.js + optional hybrid BGE; grounded Source URLs
   ${ui.success('✓')} Streamable HTTP + stdio MCP transports; auth, rate limiting, audit, stats
-  ${ui.success('✓')} Self-contained binaries, TUI, web GUI, connect, rotate, export/import, doctor
+  ${ui.success('✓')} Proxy mode: hoolix start <slug> --proxy wraps any mcp-server behind authenticated HTTP
+  ${ui.success('✓')} Self-contained binaries, TUI, web GUI, connect, rotate, export/import, bundle, doctor, shell completions
 `);
 }

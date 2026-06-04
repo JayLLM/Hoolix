@@ -121,6 +121,28 @@ export async function cmdDoctor(json: boolean): Promise<void> {
     checks.push({ name: 'uvx', ok: false, detail: 'not found — install uv (https://docs.astral.sh/uv/) for the sqlite template' });
   }
 
+  // proxy mode: summarise which mcp-server servers are running in proxy mode
+  try {
+    const { serverManager } = await import('../process/manager.js');
+    const allServers = (results.servers as any)?.slugs as string[] | undefined ?? [];
+    const proxyActive: string[] = [];
+    for (const serverSlug of allServers) {
+      try {
+        const st = await serverManager.getStatus(serverSlug);
+        if (st.running && st.mode === 'proxy') proxyActive.push(serverSlug);
+      } catch {}
+    }
+    checks.push({
+      name: 'proxy-mode',
+      ok: true,
+      detail: proxyActive.length > 0
+        ? `${proxyActive.length} server(s) running in proxy mode: ${proxyActive.join(', ')}`
+        : 'no servers in proxy mode (start with: hoolix start <slug> --proxy)',
+    });
+  } catch (e: any) {
+    checks.push({ name: 'proxy-mode', ok: true, detail: 'proxy mode available (hoolix start <slug> --proxy)' });
+  }
+
   // ── credentials.json permission check (Unix only) ────────────────────────────
   if (process.platform !== 'win32') {
     const mcpServers = (results.servers as any)?.slugs as string[] | undefined ?? [];

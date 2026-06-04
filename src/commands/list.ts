@@ -1,7 +1,8 @@
 import { validateServerState } from '../core/registry.js';
 import { getServerSourceLabel, listRegisteredServers } from '../app/services/servers.js';
+import { serverManager } from '../process/manager.js';
 import { logger } from '../core/logger.js';
-import { printTitle, printSection, printCommand, printTable, printJson, truncate, getFreshness, formatDate } from '../ui/format.js';
+import { printTitle, printSection, printCommand, printTable, printJson, truncate, getFreshness, formatDate, ui } from '../ui/format.js';
 
 export async function cmdList(json: boolean): Promise<void> {
   const servers = await listRegisteredServers();
@@ -14,6 +15,8 @@ export async function cmdList(json: boolean): Promise<void> {
   if (servers.length === 0) {
     printTitle('Servers', 'No MCP servers registered yet.');
     printSection('Create your first server');
+    printCommand('hoolix install filesystem /Users/jay/projects --yes');
+    printCommand('hoolix install github-api --yes');
     printCommand('hoolix create "My Docs" --url https://example.com/docs/llms.txt');
     printCommand('hoolix templates list');
     console.log('');
@@ -22,19 +25,50 @@ export async function cmdList(json: boolean): Promise<void> {
 
   printTitle('Servers', `${servers.length} registered MCP server${servers.length === 1 ? '' : 's'}`);
 
+  // Fetch proxy/running status concurrently for mcp-server kind servers
+  const mcpServerSlugs = servers
+    .filter((s) => (s as any).serverKind === 'mcp-server')
+    .map((s) => s.slug);
+
+  const statusMap: Record<string, { running: boolean; mode?: string; port?: number }> = {};
+  if (mcpServerSlugs.length > 0) {
+    await Promise.all(
+      mcpServerSlugs.map(async (slug) => {
+        try {
+          statusMap[slug] = await serverManager.getStatus(slug);
+        } catch {
+          statusMap[slug] = { running: false };
+        }
+      }),
+    );
+  }
+
   const rows = servers.map((s) => {
     const isMcpServer = (s as any).serverKind === 'mcp-server';
-    const chunksOrTransport = isMcpServer
-      ? 'stdio'
-      : s.chunkCount.toLocaleString();
+    const st = statusMap[s.slug];
+
+    let statusOrChunks: string;
+    if (isMcpServer) {
+      if (st?.running && st.mode === 'proxy' && st.port) {
+        statusOrChunks = `proxy:${st.port}`;
+      } else if (st?.running) {
+        statusOrChunks = `running`;
+      } else {
+        statusOrChunks = 'stdio';
+      }
+    } else {
+      statusOrChunks = s.chunkCount.toLocaleString();
+    }
+
     const sourceOrTemplate = isMcpServer
       ? (s.definition?.template?.id ?? 'mcp-server')
       : truncate((s.definition?.sources.length ?? 1) > 1 ? getServerSourceLabel(s) : s.sourceUrl, 44);
+
     return {
       Name:      truncate(s.name, 26),
       Slug:      s.slug,
       Kind:      isMcpServer ? 'mcp-server' : 'docs-rag',
-      Chunks:    chunksOrTransport,
+      Status:    statusOrChunks,
       Freshness: isMcpServer ? '—' : getFreshness(s.lastUpdatedAt).message,
       Source:    sourceOrTemplate,
       Created:   formatDate(s.createdAt),
@@ -43,6 +77,12 @@ export async function cmdList(json: boolean): Promise<void> {
 
   printTable(rows);
   console.log('');
+
+  const proxyRunning = Object.values(statusMap).filter((s) => s.running && s.mode === 'proxy');
+  if (proxyRunning.length > 0) {
+    console.log(`  ${ui.success('●')} ${proxyRunning.length} mcp-server(s) running in proxy mode. Use ${ui.accent('hoolix connect <slug>')} for HTTP config.`);
+    console.log('');
+  }
 
   for (const s of servers) {
     // Only validate docs-rag servers (mcp-server has no chunks to validate)

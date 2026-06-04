@@ -261,25 +261,50 @@ function buildFrame(state: TUIState): string {
       const templateId   = sel.definition?.template?.id ?? '—';
       const templateName = sel.definition?.template?.name ?? templateId;
       const credKeys: string[] = (sel as any).credentialKeys ?? [];
+      const isProxied = st.running && (st as any).mode === 'proxy';
 
       addRow('Kind',     'mcp-server');
       addRow('Template', clip(templateName, rightW - 14));
-      addRow('Transport', 'stdio');
-      addRow('Status',   'stopped (use c to copy config)', (v) => `${A.gray}${v}${A.reset}`);
+
+      if (isProxied) {
+        addRow('Transport', 'proxy (HTTP)');
+        const proxyUrl = `http://127.0.0.1:${st.port}/mcp`;
+        addRow('Status',   `running (proxy on :${st.port})`, (v) => `${A.green}${v}${A.reset}`);
+        rightRaw.push(` ${pad('Proxy URL', 12)}  ${clip(proxyUrl, rightW - 14)}`);
+        rightColored.push(` ${A.dim}${pad('Proxy URL', 12)}${A.reset}  ${A.cyan}${clip(proxyUrl, rightW - 14)}${A.reset}`);
+      } else if (st.running) {
+        addRow('Transport', 'stdio');
+        addRow('Status',   'running (stdio)', (v) => `${A.green}${v}${A.reset}`);
+      } else {
+        addRow('Transport', 'stdio');
+        addRow('Status',   'stopped (c to copy config)', (v) => `${A.gray}${v}${A.reset}`);
+      }
+
       if (credKeys.length > 0) {
         addRow('Credentials', `${credKeys.length} stored`);
       } else {
         addRow('Credentials', 'none stored');
       }
       blank();
-      const hintLine = pad(` ${B.dot} c copy stdio config · x update secrets · s—n/a`, rightW);
-      rightRaw.push(hintLine);
-      rightColored.push(
-        ` ${A.dim}${B.dot} Press ${A.reset}${A.cyan}c${A.reset}${A.dim} copy config` +
-        ` · ${A.reset}${A.cyan}x${A.reset}${A.dim} secrets` +
-        ` · s—n/a${A.reset}` +
-        ' '.repeat(Math.max(0, rightW - 46)),
-      );
+      if (isProxied) {
+        const hintLine = pad(` ${B.dot} c copy HTTP config · x update secrets · s stop proxy`, rightW);
+        rightRaw.push(hintLine);
+        rightColored.push(
+          ` ${A.dim}${B.dot} Press ${A.reset}${A.cyan}c${A.reset}${A.dim} HTTP config` +
+          ` · ${A.reset}${A.cyan}x${A.reset}${A.dim} secrets` +
+          ` · ${A.reset}${A.cyan}s${A.reset}${A.dim} stop proxy${A.reset}` +
+          ' '.repeat(Math.max(0, rightW - 50)),
+        );
+      } else {
+        const hintLine = pad(` ${B.dot} c copy stdio config · x update secrets · s—n/a`, rightW);
+        rightRaw.push(hintLine);
+        rightColored.push(
+          ` ${A.dim}${B.dot} Press ${A.reset}${A.cyan}c${A.reset}${A.dim} copy config` +
+          ` · ${A.reset}${A.cyan}x${A.reset}${A.dim} secrets` +
+          ` · s—n/a${A.reset}` +
+          ' '.repeat(Math.max(0, rightW - 46)),
+        );
+      }
     } else {
       // ── docs-rag kind detail (existing) ────────────────────────────────
       addRow((sel.definition?.sources.length ?? 1) > 1 ? 'Sources' : 'Source', (sel.definition?.sources.length ?? 1) > 1 ? getServerSourceLabel(sel) : (sel.sourceUrl || '—'));
@@ -314,14 +339,14 @@ function buildFrame(state: TUIState): string {
     const lines = [
       '  Start here:',
       '',
-      `  1. hoolix trial                            (docs-rag demo)`,
-      `  2. hoolix templates list                   (browse all)`,
-      `  3. hoolix create "My Files" --template filesystem --yes`,
+      `  1. hoolix install filesystem /Users/me/projects --yes`,
+      `  2. hoolix install github-api --yes   (token prompted)`,
+      `  3. hoolix install brave-search --yes`,
       `  4. hoolix create "Docs" --url https://.../llms.txt --yes`,
       `  5. hoolix connect my-files --client claude`,
       `  6. hoolix client status`,
       '',
-      `  ${B.dot} Press t for templates or n for a create command.`,
+      `  ${B.dot} Press t for templates · n for create command.`,
     ];
     for (const l of lines) {
       rightRaw.push(pad(l, rightW));
@@ -470,10 +495,24 @@ async function handleKey(key: string, state: TUIState): Promise<void> {
   if (!slug) return;
 
   if (key.toLowerCase() === 's') {
-    // mcp-server kind: client spawns the process — no Hoolix host
+    // mcp-server kind: stop proxy if running, otherwise hint
     if ((servers[state.selectedIndex] as any)?.serverKind === 'mcp-server') {
-      setAction(state, `${slug} uses stdio transport — press c to copy client config`);
-      setTimeout(() => { setAction(state, null); render(state); }, 3000);
+      const mcpSt = statuses[slug] || { running: false };
+      if (mcpSt.running && (mcpSt as any).mode === 'proxy') {
+        setAction(state, `Stopping proxy for ${slug}…`);
+        render(state);
+        try {
+          await serverManager.stop(slug);
+          setAction(state, `Proxy stopped: ${slug}`);
+        } catch (e: any) {
+          setAction(state, `Stop failed: ${e?.message || e}`, true);
+        }
+        await refresh(state);
+        setTimeout(() => { setAction(state, null); render(state); }, 2500);
+        return;
+      }
+      setAction(state, `${slug} uses stdio — press c to copy config, or run: hoolix start ${slug} --proxy`);
+      setTimeout(() => { setAction(state, null); render(state); }, 3500);
       return;
     }
     const st = statuses[slug] || { running: false };
@@ -538,6 +577,25 @@ async function handleKey(key: string, state: TUIState): Promise<void> {
       const meta = await getServerMetadata(slug);
 
       if ((meta as any).serverKind === 'mcp-server') {
+        // If proxy is running, emit HTTP config; otherwise stdio config
+        const mcpSt = statuses[slug] || {};
+        if ((mcpSt as any).running && (mcpSt as any).mode === 'proxy' && (mcpSt as any).port) {
+          // Proxy mode: HTTP streamable config
+          const payload = {
+            mcpServers: {
+              [slug]: {
+                type:    'streamable-http',
+                url:     `http://127.0.0.1:${(mcpSt as any).port}/mcp`,
+                headers: { Authorization: `Bearer ${meta.authKey}` },
+              },
+            },
+          };
+          const copied = await copyToClipboard(JSON.stringify(payload, null, 2));
+          const maskedKey = maskKey(meta.authKey);
+          setAction(state, copied
+            ? `✓ Copied HTTP proxy config for ${slug} (key: ${maskedKey})`
+            : `Run: hoolix connect ${slug} --json`);
+        } else {
         // Build stdio config: load credentials + interpolate run config
         const templateId = meta.definition?.template?.id;
         const template   = templateId ? await getTemplate(templateId).catch(() => null) : null;
@@ -557,6 +615,7 @@ async function handleKey(key: string, state: TUIState): Promise<void> {
         setAction(state, copied
           ? `✓ Copied stdio config for ${slug}`
           : `Run: hoolix connect ${slug} --json`);
+        }
       } else {
         // docs-rag: existing HTTP streamable flow
         const st   = statuses[slug] || {};

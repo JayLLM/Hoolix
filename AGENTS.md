@@ -58,7 +58,7 @@ src/
 │   ├── contracts.ts         # TypeScript interfaces for service inputs/results
 │   └── events.ts            # AppProgressEvent + emitProgress
 ├── catalog/
-│   └── templates.ts         # CatalogTemplateSchema: both docs-rag + mcp-server kinds; 9 official templates
+│   └── templates.ts         # CatalogTemplateSchema: both docs-rag + mcp-server kinds; 14 official templates
 ├── sources/                 # types.ts (ServerDefinitionSchema), registry.ts (CLI parsers), plugins.ts (custom)
 ├── tui/                     # index.tsx (pure-Node TUI, dynamic import only)
 ├── web/                     # Hono web GUI
@@ -159,7 +159,11 @@ Templates are typed as `kind: 'docs-rag'` or `kind: 'mcp-server'`. The kind dete
 - `.runtime.json` gains `mode: 'proxy'` — `getStatus()` returns `mode: 'http' | 'proxy'`.
 - `hoolix connect` checks proxy status: if `mode === 'proxy'`, emits HTTP config; otherwise emits stdio config.
 - Runtime file format: `{ pid, port, startedAt, status, mode: 'proxy', childPid, template }`.
-- Phase 1 limitation: no SSE streaming responses (synchronous JSON-RPC request/response only).
+- SSE phase 1: when client sends `Accept: text/event-stream`, the synchronous JSON-RPC response is wrapped as an SSE `data:` event. Full bidirectional SSE streaming is a future MINOR.
+- Auto-restart: child process is restarted on unexpected exit (exponential backoff: 1s, 2s, 4s, 8s, 16s; max MAX_RESTARTS=5 attempts). After max restarts, proxy marks itself degraded and returns HTTP 503.
+- Health monitoring: 30-second `ping` fire-and-forget to detect silent hangs (timeout handled by the pending-map timeout).
+- `hoolix list` shows `proxy:PORT` in the Status column for mcp-server kind servers running in proxy mode.
+- `hoolix doctor` reports which servers are currently running in proxy mode.
 
 **Rules**:
 - Never run the ingestion pipeline for `mcp-server` kind.
@@ -204,7 +208,22 @@ Users can drop custom `*.json` files into `~/.hoolix/templates/` (or override wi
 - `hoolix templates list --community` shows community templates and prints the directory.
 - `hoolix doctor` reports the community template count.
 
-### 10. Documentation as Code (Non-Negotiable)
+### 10. Shell Completions + Bundle
+
+**Shell completions** (`hoolix completion <shell>`):
+- Outputs a ready-to-source script for bash, zsh, fish, or powershell.
+- Dynamic slug completion: calls `hoolix list --json` at tab-time.
+- Dynamic template ID completion: calls `hoolix templates list --json` at tab-time.
+- Update check is suppressed for the `completion` command (output must be clean — no update banners).
+- Add new commands to `COMMANDS` array in `completion.ts` when adding to `index.ts`.
+
+**Multi-server bundle** (`hoolix bundle export|import`):
+- `src/commands/bundle.ts`: multi-server export (`type: 'multi-server-bundle'`, `version: 1`).
+- Credentials are NEVER exported (same invariant as single-server `export`).
+- After `bundle import`, credential commands are printed for each mcp-server slug.
+- JSON output of `bundle import` includes `credentialsRequired`, `next[]`.
+
+### 11. Documentation as Code (Non-Negotiable)
 - Every CLI/behavior change → update:
   - README (hero, table, quickstart, examples, limitations, "why").
   - Relevant `docs/docs/guides/*` + `getting-started/*`.
@@ -216,7 +235,7 @@ Users can drop custom `*.json` files into `~/.hoolix/templates/` (or override wi
 - Architecture diagrams: Mermaid code blocks + ASCII. (Docusaurus can add remark-mermaid later.)
 - "How to keep documentation perfect" section below.
 
-### 10. Contribution & Agent Workflow
+### 12. Contribution & Agent Workflow
 - **Always** start with issue / discussion for anything > tiny.
 - Use `todo_write` for multi-step work (this session did).
 - For ambiguity or large design: `enter_plan_mode` → explore (use `spawn_subagent` with type "explore" for parallel) → write plan → `exit_plan_mode`.
