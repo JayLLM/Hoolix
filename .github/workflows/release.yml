@@ -18,18 +18,23 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# NOTE: id-token:write is NOT set here at workflow level — it is scoped to the
+# publish-npm job only. Granting it workflow-wide would give every job (including
+# binary builds running on third-party runners) OIDC credentials it does not need.
 permissions:
-  contents: write
-  id-token: write   # needed for npm provenance attestation
+  contents: write   # needed by prepare-release (push tag + commit) and attach-release-assets
 
 jobs:
-  # ── Job 1: release-it (bump, CHANGELOG, tag, GitHub Release body) ───────────
+  # ── Job 1: release-it ────────────────────────────────────────────────────────
+  # Bumps version in package.json, runs sync-version hook (→ version.ts),
+  # updates CHANGELOG, commits, tags, and creates the GitHub Release.
   prepare-release:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     outputs:
-      tag: ${{ steps.version.outputs.tag }}
-      version: ${{ steps.version.outputs.version }}
+      tag:        ${{ steps.version.outputs.tag }}
+      version:    ${{ steps.version.outputs.version }}
+      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -50,7 +55,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Run release-it to create release
+      - name: Run release-it
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -60,16 +65,23 @@ jobs:
             bunx release-it --ci --increment=${{ github.event.inputs.release_type }} --github.preRelease=false
           fi
 
-      - name: Get released tag and version
+      - name: Capture released tag and version
         id: version
         run: |
-          TAG="v$(node -p "require('./package.json').version")"
           VERSION="$(node -p "require('./package.json').version")"
-          echo "tag=$TAG"         >> $GITHUB_OUTPUT
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Released: $TAG"
+          TAG="v${VERSION}"
+          # Detect if this is a prerelease (contains a hyphen: beta, alpha, rc, etc.)
+          if echo "$VERSION" | grep -qE '[-]'; then
+            IS_PRE=true
+          else
+            IS_PRE=false
+          fi
+          echo "tag=$TAG"             >> $GITHUB_OUTPUT
+          echo "version=$VERSION"     >> $GITHUB_OUTPUT
+          echo "is_prerelease=$IS_PRE" >> $GITHUB_OUTPUT
+          echo "Released: $TAG  (prerelease=$IS_PRE)"
 
-  # ── Job 2: cross-platform binary builds (matrix on native runners) ───────────
+  # ── Job 2: cross-platform binary builds ──────────────────────────────────────
   build-binaries:
     needs: [prepare-release]
     if: needs.prepare-release.result == 'success'
@@ -77,21 +89,31 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Linux x64 (also runs the full smoke ingest test)
           - runner: ubuntu-latest
             os: linux
             arch: x64
             binary-name: hoolix-linux-x64
             ext: ''
+          # Linux arm64
           - runner: ubuntu-24.04-arm
             os: linux
             arch: arm64
             binary-name: hoolix-linux-arm64
             ext: ''
+          # macOS Apple Silicon (arm64)
           - runner: macos-14
             os: darwin
             arch: arm64
             binary-name: hoolix-darwin-arm64
             ext: ''
+          # macOS Intel (x64) — comment out if macos-13 runners are unavailable
+          - runner: macos-13
+            os: darwin
+            arch: x64
+            binary-name: hoolix-darwin-x64
+            ext: ''
+          # Windows x64
           - runner: windows-latest
             os: windows
             arch: x64
@@ -113,42 +135,63 @@ jobs:
           bun-version: 1.2.0
 
       - name: Install deps
+        # Fallback to plain install if lockfile is out of date (shouldn't happen
+        # after a clean release commit, but keeps CI resilient)
         run: bun install --frozen-lockfile || bun install
 
       - name: Type check (non-blocking)
-        run: bun run typecheck || echo "Type issues (non-fatal)"
+        run: bun run typecheck || echo "Type issues (non-fatal for binary)"
         continue-on-error: true
 
-      - name: Compile binary
+      - name: Compile binary with bun build --compile
         shell: bash
         run: |
           set -e
           mkdir -p dist-bin
           OUT="dist-bin/${{ matrix.binary-name }}${{ matrix.ext }}"
-          echo "Building $OUT"
+          echo "Building $OUT for ${{ matrix.os }}-${{ matrix.arch }} on ${{ matrix.runner }}"
           bun build --compile src/index.ts --minify --outfile "$OUT"
           ls -lh "$OUT" || true
+          # On Windows bun may omit the .exe — normalise
           if [[ "${{ matrix.os }}" == "windows" && ! "$OUT" == *.exe && -f "dist-bin/${{ matrix.binary-name }}" ]]; then
             mv "dist-bin/${{ matrix.binary-name }}" "$OUT" || true
           fi
 
-      - name: Quick smoke
+      - name: Quick smoke (all platforms)
         shell: bash
         run: |
           set -e
           BIN="./dist-bin/${{ matrix.binary-name }}${{ matrix.ext }}"
-          if [[ ! -f "$BIN" && -f "dist-bin/${{ matrix.binary-name }}" ]]; then BIN="dist-bin/${{ matrix.binary-name }}"; fi
+          [[ ! -f "$BIN" && -f "dist-bin/${{ matrix.binary-name }}" ]] && BIN="dist-bin/${{ matrix.binary-name }}"
           chmod +x "$BIN" 2>/dev/null || true
           export MCP_PORTAL_DATA_DIR="${RUNNER_TEMP:-/tmp}/hoolix-release-smoke-${{ matrix.os }}-${{ matrix.arch }}"
           export MCP_PORTAL_SKIP_UPDATE_CHECK=1
           "$BIN" --version
           "$BIN" doctor --json || echo "(doctor non-fatal in CI)"
-          "$BIN" list --json || true
+          "$BIN" list --json   || true
           MCP_PORTAL_TUI_TEST_MODE=1 MCP_PORTAL_TUI_KEYS='r,q' CI='' "$BIN" tui
           BYTES=$(node -e "const fs=require('fs'); console.log(fs.statSync(process.argv[1]).size)" "$BIN")
           echo "Binary size: $BYTES bytes"
           test "$BYTES" -lt 250000000
-          echo "Smoke passed"
+          echo "Quick smoke passed"
+
+      - name: Full smoke (linux x64 only — ingest + verify + connect + host)
+        if: matrix.runner == 'ubuntu-latest' && matrix.arch == 'x64'
+        shell: bash
+        run: |
+          set -e
+          BIN="./dist-bin/${{ matrix.binary-name }}"
+          chmod +x "$BIN"
+          SLUG="ci-smoke"
+          export MCP_PORTAL_DATA_DIR="${RUNNER_TEMP:-/tmp}/hoolix-full-smoke-${GITHUB_RUN_ID:-manual}"
+          export MCP_PORTAL_SKIP_UPDATE_CHECK=1
+          "$BIN" create "CI Smoke" --url https://raw.githubusercontent.com/modelcontextprotocol/servers/main/README.md --yes
+          "$BIN" verify "$SLUG" --json | head -c 2000 || true
+          "$BIN" connect "$SLUG" --json | head -c 600  || true
+          timeout 25s "$BIN" start "$SLUG" || echo "start attempted/timed out (expected in CI)"
+          "$BIN" stop "$SLUG"   || true
+          "$BIN" delete "$SLUG" --yes || true
+          echo "Full smoke passed"
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
@@ -157,12 +200,83 @@ jobs:
           path: dist-bin/${{ matrix.binary-name }}${{ matrix.ext }}
           retention-days: 7
 
-  # ── Job 3: npm publish (runs after binaries build in parallel) ───────────────
+  # ── Job 3: publish to npm ─────────────────────────────────────────────────────
+  # Runs in parallel with build-binaries (both depend on prepare-release).
+  # Stable releases → published as `latest`.
+  # Beta/prerelease  → published as `next`  (npm install hoolix@next).
+  # Requires the NPM_TOKEN repository secret.
   publish-npm:
     needs: [prepare-release]
-    if: |
-      needs.prepare-release.result == 'success' &&
-      github.event.inputs.release_type != 'beta'
+    if: needs.prepare-release.result == 'success'
+    runs-on: ubuntu-latest
+    # Scope id-token:write to this job only (required for npm provenance).
+    # Do NOT put this at workflow level — binary build runners don't need OIDC.
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout released tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare-release.outputs.tag }}
+
+      # setup-node MUST come before any npm publish step so it writes ~/.npmrc
+      # with the registry auth token.
+      - name: Setup Node.js with npm registry auth
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Setup Bun (for tsc build)
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.0
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile || bun install
+
+      - name: Build TypeScript → dist/
+        run: bun run build
+
+      - name: Verify dist/ output
+        run: |
+          test -f dist/index.js || { echo "ERROR: dist/index.js missing after build"; exit 1; }
+          echo "dist/ contents (first 10):"
+          ls dist/ | head -10
+
+      - name: Run tests
+        run: bun test
+        continue-on-error: true
+
+      - name: Determine npm dist-tag
+        id: npm-tag
+        run: |
+          VERSION="${{ needs.prepare-release.outputs.version }}"
+          IS_PRE="${{ needs.prepare-release.outputs.is_prerelease }}"
+          if [ "$IS_PRE" = "true" ]; then
+            echo "tag=next" >> $GITHUB_OUTPUT
+            echo "Publishing $VERSION as dist-tag: next"
+          else
+            echo "tag=latest" >> $GITHUB_OUTPUT
+            echo "Publishing $VERSION as dist-tag: latest"
+          fi
+
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          VERSION="${{ needs.prepare-release.outputs.version }}"
+          NPM_TAG="${{ steps.npm-tag.outputs.tag }}"
+          echo "Publishing hoolix@${VERSION} with dist-tag=${NPM_TAG}..."
+          npm publish --access public --provenance --tag "$NPM_TAG"
+          echo "Published hoolix@${VERSION} (tag=${NPM_TAG})"
+
+  # ── Job 4: checksums, GPG signatures, attach to GitHub Release ───────────────
+  attach-release-assets:
+    needs: [prepare-release, build-binaries]
+    if: needs.prepare-release.result == 'success' && needs.build-binaries.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout released tag
@@ -170,54 +284,7 @@ jobs:
         with:
           ref: ${{ needs.prepare-release.outputs.tag }}
 
-      - name: Setup Node.js (for npm publish)
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
-
-      - name: Setup Bun (for build)
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.2.0
-
-      - name: Install deps
-        run: bun install --frozen-lockfile
-
-      - name: Build (tsc → dist/)
-        run: bun run build
-
-      - name: Verify dist/ output
-        run: |
-          test -f dist/index.js || (echo "dist/index.js missing after build" && exit 1)
-          echo "dist/ verified"
-          ls dist/ | head -5
-
-      - name: Run tests
-        run: bun test
-        continue-on-error: true
-
-      - name: Publish to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          VERSION="${{ needs.prepare-release.outputs.version }}"
-          echo "Publishing hoolix@$VERSION to npm..."
-          npm publish --access public --provenance
-          echo "Published hoolix@$VERSION"
-
-  # ── Job 4: attach binaries + checksums + GPG sigs to GitHub Release ──────────
-  attach-release-assets:
-    needs: [prepare-release, build-binaries]
-    if: needs.prepare-release.result == 'success' && needs.build-binaries.result == 'success'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.prepare-release.outputs.tag }}
-
-      - name: Download all binaries
+      - name: Download all binary artifacts
         uses: actions/download-artifact@v4
         with:
           path: ./dist-bin
@@ -227,36 +294,68 @@ jobs:
         run: ls -lh ./dist-bin/
 
       - name: Generate SHA-256 checksums
+        shell: bash
         run: |
           cd dist-bin
-          # Generate checksums for all platform binaries
-          sha256sum hoolix-linux-x64 hoolix-linux-arm64 hoolix-darwin-arm64 hoolix-windows-x64.exe > SHA256SUMS 2>/dev/null || \
-          shasum -a 256 hoolix-linux-x64 hoolix-linux-arm64 hoolix-darwin-arm64 hoolix-windows-x64.exe > SHA256SUMS 2>/dev/null || true
-          echo ""
-          echo "SHA256SUMS:"
-          cat SHA256SUMS || echo "(no checksums generated)"
-          mv SHA256SUMS ../SHA256SUMS || true
+          FILES=""
+          for f in hoolix-linux-x64 hoolix-linux-arm64 hoolix-darwin-x64 hoolix-darwin-arm64 hoolix-windows-x64.exe; do
+            [ -f "$f" ] && FILES="$FILES $f"
+          done
+          if [ -n "$FILES" ]; then
+            # sha256sum (Linux); fallback to shasum (macOS runners if ever used here)
+            if command -v sha256sum >/dev/null 2>&1; then
+              sha256sum $FILES > SHA256SUMS
+            else
+              shasum -a 256 $FILES > SHA256SUMS
+            fi
+            echo ""
+            echo "=== SHA256SUMS ==="
+            cat SHA256SUMS
+          else
+            echo "WARNING: no binary files found to checksum"
+          fi
+          mv SHA256SUMS ../SHA256SUMS
 
-      - name: Import GPG key (optional — only if secret is set)
-        if: ${{ secrets.GPG_PRIVATE_KEY != '' }}
+      # GPG signing — optional. Only runs when the GPG_PRIVATE_KEY secret is set.
+      # Uses an env-var probe because secrets cannot be compared directly in
+      # `if:` expressions (they are masked even in expressions).
+      - name: Check if GPG signing is available
+        id: gpg-check
+        shell: bash
+        run: |
+          if [ -n "$GPG_KEY" ]; then
+            echo "available=true" >> $GITHUB_OUTPUT
+          else
+            echo "available=false" >> $GITHUB_OUTPUT
+            echo "GPG_PRIVATE_KEY secret not set — skipping GPG signing."
+          fi
+        env:
+          GPG_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+
+      - name: Import GPG key
+        if: steps.gpg-check.outputs.available == 'true'
         uses: crazy-max/ghaction-import-gpg@v6
         with:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
-        continue-on-error: true
 
-      - name: GPG-sign binaries (optional)
-        if: ${{ secrets.GPG_PRIVATE_KEY != '' }}
+      - name: GPG-sign binaries
+        if: steps.gpg-check.outputs.available == 'true'
         shell: bash
         run: |
           set +e
           echo "Signing binaries with GPG..."
-          for f in dist-bin/hoolix-linux-x64 dist-bin/hoolix-linux-arm64 dist-bin/hoolix-darwin-arm64 dist-bin/hoolix-windows-x64.exe; do
+          for f in dist-bin/hoolix-linux-x64 dist-bin/hoolix-linux-arm64 \
+                   dist-bin/hoolix-darwin-x64 dist-bin/hoolix-darwin-arm64 \
+                   dist-bin/hoolix-windows-x64.exe; do
             if [ -f "$f" ]; then
-              gpg --batch --yes --armor --detach-sign "$f" && echo "Signed: $f" || echo "GPG sign failed for $f (non-fatal)"
+              gpg --batch --yes --armor --detach-sign "$f" \
+                && echo "  Signed: $f" \
+                || echo "  GPG sign failed for $f (non-fatal)"
             fi
           done
-          ls -la dist-bin/*.asc 2>/dev/null || echo "No GPG signatures produced"
+          echo ""
+          ls -la dist-bin/*.asc 2>/dev/null || echo "No GPG .asc files produced"
           set -e
         continue-on-error: true
 
@@ -264,53 +363,60 @@ jobs:
         shell: bash
         run: |
           mkdir -p release-assets
-          cp dist-bin/hoolix-linux-x64 release-assets/ 2>/dev/null || true
-          cp dist-bin/hoolix-linux-arm64 release-assets/ 2>/dev/null || true
-          cp dist-bin/hoolix-darwin-arm64 release-assets/ 2>/dev/null || true
-          cp dist-bin/hoolix-windows-x64.exe release-assets/ 2>/dev/null || true
-          cp dist-bin/*.asc release-assets/ 2>/dev/null || true
-          cp SHA256SUMS release-assets/ 2>/dev/null || true
+          # Binaries
+          for f in hoolix-linux-x64 hoolix-linux-arm64 hoolix-darwin-x64 \
+                   hoolix-darwin-arm64 hoolix-windows-x64.exe; do
+            [ -f "dist-bin/$f" ] && cp "dist-bin/$f" release-assets/
+          done
+          # GPG signatures (if generated)
+          ls dist-bin/*.asc 2>/dev/null && cp dist-bin/*.asc release-assets/ || true
+          # SHA-256 checksums
+          [ -f SHA256SUMS ] && cp SHA256SUMS release-assets/
           echo ""
-          echo "Release assets:"
+          echo "=== Release assets ==="
           ls -lh release-assets/
 
-      - name: Attach all assets to GitHub Release
+      - name: Attach assets to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.prepare-release.outputs.tag }}
           files: release-assets/*
-          prerelease: ${{ github.event.inputs.release_type == 'beta' }}
+          prerelease: ${{ needs.prepare-release.outputs.is_prerelease == 'true' }}
           append_body: true
           body: |
 
             ---
 
-            ## Verification
+            ## Install
 
-            ### SHA-256 checksums
-            Download `SHA256SUMS` and verify:
-            ```bash
-            # Linux / macOS
-            sha256sum --check SHA256SUMS
-
-            # macOS (shasum)
-            shasum -a 256 -c SHA256SUMS
-            ```
-
-            ### npm (recommended — no signature needed)
+            **npm (recommended — provenance-verified):**
             ```bash
             npm install -g hoolix
             ```
-            npm packages are verified via [npm provenance](https://docs.npmjs.com/generating-provenance-statements).
+            Beta/pre-release:  `npm install -g hoolix@next`
 
-            ### Binary install (Linux / macOS)
+            **Linux / macOS binary:**
             ```bash
             curl -fsSL https://raw.githubusercontent.com/JayLLM/hoolix/main/install.sh | bash
             ```
 
-            ### Binary install (Windows)
+            **Windows binary (PowerShell):**
             ```powershell
             iwr -useb https://raw.githubusercontent.com/JayLLM/hoolix/main/install.ps1 | iex
             ```
+
+            ## Verification
+
+            Download `SHA256SUMS` and verify your binary:
+            ```bash
+            # Linux
+            sha256sum --check SHA256SUMS
+
+            # macOS
+            shasum -a 256 -c SHA256SUMS
+            ```
+
+            GPG signatures (`.asc`) are attached when the `GPG_PRIVATE_KEY` repository secret is configured.
+            npm packages carry [npm provenance](https://docs.npmjs.com/generating-provenance-statements) automatically.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

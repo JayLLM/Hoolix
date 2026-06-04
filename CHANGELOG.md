@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`release.yml` — `id-token: write` scoped to `publish-npm` job only** — previously granted at workflow level, giving every job (including binary builds on third-party matrix runners) unnecessary OIDC credentials. Now confined to the `publish-npm` job via per-job `permissions:`.
+- **`release.yml` — GPG secret detection** — `if: ${{ secrets.GPG_PRIVATE_KEY != '' }}` never evaluated `true` because GitHub Actions masks secrets in all expressions. Replaced with an env-var probe step that outputs `available=true/false` via `$GITHUB_OUTPUT`, which downstream steps reference as `if: steps.gpg-check.outputs.available == 'true'`.
+- **`bin/postinstall.js` — cross-platform portability** — `"postinstall": "node bin/postinstall.js 2>/dev/null || true"` used a bash-only stderr redirect that `cmd.exe` (Windows npm) would interpret as an argument. Script now always exits 0 via `process.on('uncaughtException', () => process.exit(0))`, so the redirect is unnecessary. Added dev-checkout detection (skips welcome output when `src/index.ts` is present next to the script, i.e. developer running `npm install` in the repo).
+
+### Added
+
+- **Beta npm releases published as `--tag next`** — beta/prerelease versions (any version containing a `-`) are now published to npm with `--tag next` instead of being skipped entirely. Stable releases continue to use `--tag latest`. This allows `npm install -g hoolix@next` for beta testing.
+- **macOS x64 binary** (`hoolix-darwin-x64`) — `macos-13` runner added to the `build-binaries` matrix. Provides a native binary for Intel Macs instead of relying on Rosetta.
+- **`is_prerelease` output** from `prepare-release` job — detects any prerelease pattern (beta, alpha, rc, etc.) via regex rather than checking only the `beta` input value. Used for both the npm dist-tag decision and the GitHub Release `prerelease:` flag.
+
 ## [0.0.1-beta.17] - 2026-06-04
 
 ### Added
