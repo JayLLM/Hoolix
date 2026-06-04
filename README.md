@@ -1,13 +1,13 @@
 # Hoolix
 
-**Hoolix is your MCP home base.** Turn documentation sites, `llms.txt`, GitHub repositories, MCP server templates, and private knowledge sources into secure, source-grounded MCP servers your agents can trust.
+**Install, host, and share every MCP server — in one command.**
 
 [![npm version](https://img.shields.io/npm/v/hoolix?color=blue)](https://www.npmjs.com/package/hoolix)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Build](https://img.shields.io/github/actions/workflow/status/JayLLM/hoolix/release.yml?branch=main)](https://github.com/JayLLM/hoolix/actions)
 [![Docs](https://img.shields.io/badge/docs-Docusaurus-25c2a0?logo=docusaurus)](https://jayllm.github.io/hoolix/)
 
-> Forge docs, repos, and internal knowledge into production-grade MCP servers with a beautiful TUI, a scriptable CLI, and a lightweight GUI.
+> Your MCP home base. Zero config for the official servers. Production-grade hosting, credentials, and sharing for everything else.
 
 Hoolix helps developers and teams create high-quality RAG-backed MCP servers from real sources, and install curated MCP server templates (filesystem, GitHub, Postgres, Brave Search, Slack, and more) in a single command. Every answer is grounded with source URLs, transports support Streamable HTTP and stdio, and you get the full daily toolkit: create, verify, start, connect, reindex, monitor, bundle, export, and share.
 
@@ -19,7 +19,7 @@ Agents are only as useful as the context they can reliably reach. Copy-pasted do
 | --- | --- |
 | Fast first run | `hoolix` opens the TUI; `hoolix trial` creates a demo server in one command |
 | Trustworthy retrieval | Source-grounded search, page reads, table of contents, and `verify` health checks |
-| Popular MCP server templates | `hoolix install filesystem`, `github-api`, `postgres`, `brave-search`, `slack`, and 9 more |
+| Popular MCP server templates | `hoolix install fetch`, `filesystem`, `github-api`, `postgres`, `brave-search`, `slack`, and 9 more |
 | Flexible source models | Single URLs, multi-source definitions, GitHub repos, private docs, and custom source plugins |
 | Real MCP hosting | Authenticated Streamable HTTP plus stdio; proxy mode wraps any stdio server behind HTTP |
 | Team workflows | Usage stats, audit logs, multi-server bundles, and sanitized exports |
@@ -108,6 +108,7 @@ Running `hoolix` with no arguments opens the terminal dashboard. From there you 
 Templates are curated, one-command installs for common tools:
 
 ```bash
+hoolix install fetch --yes               # web browsing / URL fetching (zero credentials)
 hoolix install filesystem /Users/you/projects --yes
 hoolix install github-api --yes          # prompts for GITHUB_TOKEN
 hoolix install brave-search --yes        # prompts for BRAVE_API_KEY
@@ -116,10 +117,11 @@ hoolix install slack --yes               # prompts for bot token
 hoolix install memory --yes
 ```
 
-Browse all 14 official templates:
+Browse all 15 official templates:
 
 ```bash
 hoolix templates list
+hoolix templates info fetch
 hoolix templates info brave-search
 ```
 
@@ -202,7 +204,7 @@ hoolix create "Private Docs" \
 | `hoolix` | Open the TUI dashboard |
 | `hoolix trial` | Create a one-click demo server |
 | `hoolix install <template>` | Install an official MCP server template in one command |
-| `hoolix templates list` | Browse all 14 official templates |
+| `hoolix templates list` | Browse all 15 official templates |
 | `hoolix create "Name" --url <url>` | Create from one source |
 | `hoolix create "Name" --source docs:<url> --source github:owner/repo` | Create from multiple sources |
 | `hoolix list` | Inspect registered servers with live status |

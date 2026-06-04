@@ -108,6 +108,15 @@ export async function cmdTemplates(args: string[], json: boolean): Promise<void>
           ['Args',      s.args.join(' ')],
           ...(s.npmPackage ? [['Package', s.npmPackage] as [string, string]] : []),
         ]);
+        // First-run download note for npm-based servers
+        if (s.command === 'npx' && s.npmPackage) {
+          console.log(`  ${ui.muted('First use:')} client downloads ${s.npmPackage} from npm (5–30 s on first run).`);
+          if (template.id === 'puppeteer') {
+            console.log(`  ${ui.warning('⚠')}  Puppeteer also downloads Chromium (~170 MB) on first run.`);
+          }
+        } else if (s.command === 'uvx') {
+          console.log(`  ${ui.muted('Requires:')} uv / Python — install from https://docs.astral.sh/uv/`);
+        }
         console.log('');
       }
 

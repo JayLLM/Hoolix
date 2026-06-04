@@ -68,7 +68,7 @@ export const CatalogTemplateSchema = z.object({
 });
 export type CatalogTemplate = z.infer<typeof CatalogTemplateSchema>;
 
-// ── Official template definitions (14 total: 4 docs-rag + 10 mcp-server) ────────
+// ── Official template definitions (15 total: 4 docs-rag + 11 mcp-server) ────────
 
 const OFFICIAL_TEMPLATES: CatalogTemplate[] = [
 
@@ -153,6 +153,26 @@ const OFFICIAL_TEMPLATES: CatalogTemplate[] = [
 
   // ── mcp-server kind (tools) ─────────────────────────────────────────────────
 
+  {
+    id: 'fetch',
+    name: 'Fetch MCP',
+    version: '1.0.0',
+    kind: 'mcp-server',
+    category: 'tools',
+    description: 'Give AI agents the ability to fetch any URL and convert it to Markdown. Enables web browsing and live document retrieval with no credentials required.',
+    tags: ['fetch', 'web', 'browser', 'http', 'official'],
+    homepage: 'https://github.com/modelcontextprotocol/servers/tree/main/src/fetch',
+    inputs: [],
+    credentials: [],
+    sources: [],
+    server: {
+      transport: 'stdio',
+      command: 'uvx',
+      args: ['mcp-server-fetch'],
+      env: {},
+      proxyable: true,
+    },
+  },
   {
     id: 'filesystem',
     name: 'Filesystem MCP',

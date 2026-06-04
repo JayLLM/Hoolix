@@ -46,7 +46,7 @@ process.on('uncaughtException', () => process.exit(0));
     `  ${c.cyan}${c.bold}◆ hoolix installed!${c.reset}`,
     '',
     `  ${c.green}✓${c.reset} Run ${c.cyan}hoolix doctor${c.reset} to verify your installation.`,
-    `  ${c.green}✓${c.reset} Run ${c.cyan}hoolix templates list${c.reset} to browse 14 official templates.`,
+    `  ${c.green}✓${c.reset} Run ${c.cyan}hoolix templates list${c.reset} to browse 15 official templates.`,
     `  ${c.green}✓${c.reset} Run ${c.cyan}hoolix install filesystem /path/to/project --yes${c.reset} to get started.`,
     '',
     `  ${c.yellow}Shell completions:${c.reset}`,

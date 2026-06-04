@@ -22,7 +22,7 @@ Use the changelog to track released CLI flags, templates, transports, bundle for
 - **Shell tab-completion** for bash, zsh, fish, and PowerShell via `hoolix completion <shell>`.
 
 ### Templates & MCP Servers
-- **14 official templates**: `docs-rag`, `github-docs`, `filesystem`, `github-api`, `postgres`, `sqlite`, `memory`, `sequential-thinking`, `brave-search`, `slack`, `puppeteer`, `google-maps`, and more.
+- **15 official templates**: `fetch`, `docs-rag`, `github-docs`, `filesystem`, `github-api`, `postgres`, `sqlite`, `memory`, `sequential-thinking`, `brave-search`, `slack`, `puppeteer`, `google-maps`, and more.
 - **`hoolix install <template>`** — sugar for `create --template` with positional inputs and interactive credential prompts.
 - **Two-kind template system** — `docs-rag` (indexes knowledge) and `mcp-server` (config-only, stdio or proxied).
 - **Community templates** — drop `*.json` files into `~/.hoolix/templates/` for private or third-party templates.

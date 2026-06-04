@@ -447,7 +447,19 @@ export async function cmdConnect(args: string[], json: boolean): Promise<void> {
       logger.warn(`Config validation failed after write: ${validation.issue}`);
     }
   } else if (!cfgPath && !isDryRun) {
-    logger.info(`No auto-write path for "${client}". Follow the manual steps below.`);
+    if (client === 'vscode' && !isProject) {
+      // VS Code uses project-level config only — there is no safe global settings.json path.
+      console.log('');
+      console.log(`  ${ui.warning('○')} VS Code uses project-level MCP config (no global path is written).`);
+      console.log(`  ${ui.muted('Run this command from inside your project directory:')}`);
+      console.log('');
+      console.log(`    ${ui.accent(`hoolix connect ${slug} --client vscode --project`)}`);
+      console.log('');
+      console.log(`  ${ui.muted('This writes .vscode/mcp.json — commit it to share the setup with your team.')}`);
+      console.log(`  ${ui.muted('VS Code 1.99+ picks it up automatically after a window reload.')}`);
+    } else {
+      logger.info(`No auto-write path for "${client}". Follow the manual steps below.`);
+    }
   } else if (isDryRun) {
     console.log(`  ${ui.warning('○')} Dry run — no files written.`);
     if (cfgPath) console.log(`  ${ui.muted('Would write to:')} ${cfgPath}`);

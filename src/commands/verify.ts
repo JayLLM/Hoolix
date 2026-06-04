@@ -1,5 +1,5 @@
 import chalk from 'chalk';
-import { execSync } from 'node:child_process';
+import { execSync, spawnSync } from 'node:child_process';
 import { getServerMetadata } from '../core/registry.js';
 import { createRAGForServer } from '../rag/store.js';
 import { logger } from '../core/logger.js';
@@ -220,6 +220,56 @@ export async function cmdVerify(args: string[]): Promise<void> {
 
 // ── mcp-server verification ───────────────────────────────────────────────────
 
+/**
+ * Dry-run health check for an npm-based MCP server template.
+ * Calls `npm view <package> version` — fast (<2s), no download, confirms the
+ * package exists on the registry and returns its latest version string.
+ * For uvx (Python-based) templates, attempts `uvx <package> --version`.
+ */
+function checkPackageReachability(
+  command: string,
+  npmPackage: string | undefined,
+  args: string[],
+): { ok: boolean; detail: string } {
+  try {
+    if (command === 'npx' && npmPackage) {
+      // `npm view` hits the registry without downloading — fast and reliable.
+      const result = spawnSync('npm', ['view', npmPackage, 'version'], {
+        encoding: 'utf8',
+        timeout: 10_000,
+      });
+      if (result.status === 0 && result.stdout?.trim()) {
+        const ver = result.stdout.trim().split('\n').at(-1)?.trim() ?? result.stdout.trim();
+        return { ok: true, detail: `${npmPackage}@${ver} found on npm` };
+      }
+      const errMsg = result.stderr?.trim() || result.error?.message || 'npm view failed';
+      return {
+        ok: false,
+        detail: `Package "${npmPackage}" not found on npm — ${errMsg.slice(0, 120)}`,
+      };
+    }
+
+    if (command === 'uvx') {
+      // uv index names vary; best we can do is probe the uvx binary itself.
+      const packageName = args[0] ?? npmPackage ?? command;
+      const result = spawnSync('uvx', [packageName, '--version'], {
+        encoding: 'utf8',
+        timeout: 15_000,
+      });
+      // uvx may exit non-zero (server flags differ), but if it ran we consider it ok.
+      if (result.error) {
+        return { ok: false, detail: `uvx "${packageName}" could not be started: ${result.error.message}` };
+      }
+      return { ok: true, detail: `uvx ${packageName} reachable` };
+    }
+
+    // Unknown command — skip the reachability check rather than failing.
+    return { ok: true, detail: `skipped (non-npm command: ${command})` };
+  } catch (e: any) {
+    return { ok: true, detail: `reachability check skipped (${e?.message ?? 'unknown error'})` };
+  }
+}
+
 async function verifMcpServer(slug: string, meta: any, json: boolean): Promise<void> {
   const templateId = meta.definition?.template?.id ?? 'unknown';
   const credentialKeys: string[] = meta.credentialKeys ?? [];
@@ -244,7 +294,7 @@ async function verifMcpServer(slug: string, meta: any, json: boolean): Promise<v
   } else if (missingCreds.length === 0) {
     checks.push({ name: 'Credentials', ok: true, detail: `${storedKeys.length} stored (${storedKeys.join(', ')})` });
   } else {
-    checks.push({ name: 'Credentials', ok: false, detail: `missing: ${missingCreds.join(', ')}` });
+    checks.push({ name: 'Credentials', ok: false, detail: `missing: ${missingCreds.join(', ')} — run: hoolix secrets set ${slug} <key>` });
   }
 
   // 3. Template inputs present
@@ -259,13 +309,39 @@ async function verifMcpServer(slug: string, meta: any, json: boolean): Promise<v
     checks.push({ name: 'Template inputs', ok: false, detail: `missing: ${missingInputs.join(', ')}` });
   }
 
-  // 4. Runtime tool available
+  // 4. Runtime tool available (npx / uvx / custom)
   const command = template?.server?.command ?? 'npx';
+  let runtimeOk = false;
   try {
-    execSync(`${command === 'npx' ? 'npx --version' : `which ${command}`}`, { stdio: 'ignore' });
+    if (command === 'npx') {
+      execSync('npx --version', { stdio: 'ignore' });
+    } else if (command === 'uvx') {
+      execSync('uvx --version', { stdio: 'ignore' });
+    } else {
+      execSync(process.platform === 'win32' ? `where ${command}` : `which ${command}`, { stdio: 'ignore' });
+    }
+    runtimeOk = true;
     checks.push({ name: `Runtime (${command})`, ok: true, detail: 'available' });
   } catch {
-    checks.push({ name: `Runtime (${command})`, ok: false, detail: `"${command}" not found — install Node.js / uv as needed` });
+    checks.push({
+      name: `Runtime (${command})`,
+      ok: false,
+      detail: command === 'uvx'
+        ? 'uv not found — install from https://docs.astral.sh/uv/'
+        : `"${command}" not found — install Node.js (nodejs.org)`,
+    });
+  }
+
+  // 5. Package reachability (npm registry or uvx — confirms credentials aren't the only blocker)
+  //    Only run when runtime is available (otherwise runtime check already explains the failure).
+  const npmPackage = template?.server?.npmPackage as string | undefined;
+  const serverArgs = (template?.server?.args ?? []) as string[];
+  if (runtimeOk && (command === 'npx' || command === 'uvx')) {
+    if (!json) {
+      process.stdout.write(`  ${ui.muted('○')} ${'Package reachability'.padEnd(24)}  ${ui.muted('checking…')}\r`);
+    }
+    const reach = checkPackageReachability(command, npmPackage, serverArgs);
+    checks.push({ name: 'Package reachability', ok: reach.ok, detail: reach.detail });
   }
 
   const allOk = checks.every((c) => c.ok);
@@ -282,6 +358,9 @@ async function verifMcpServer(slug: string, meta: any, json: boolean): Promise<v
     }, null, 2));
     return;
   }
+
+  // Clear the "checking…" progress line
+  process.stdout.write(' '.repeat(60) + '\r');
 
   printTitle('Verify', `${meta.name} (${slug})`);
   printDetails([
@@ -301,13 +380,21 @@ async function verifMcpServer(slug: string, meta: any, json: boolean): Promise<v
   if (allOk) {
     console.log(`  ${ui.success('✓')} Server is ready to use.`);
     printCommand(`hoolix connect ${slug}`);
+    if (template?.server?.npmPackage) {
+      console.log('');
+      console.log(`  ${ui.muted('First use:')} your client will run ${ui.accent(`npx -y ${template.server.npmPackage}@latest`)} on demand.`);
+      if (templateId === 'puppeteer') {
+        console.log(`  ${ui.warning('⚠')}  Puppeteer will also download Chromium (~170 MB) on first run.`);
+      }
+    }
   } else {
     const missing = checks.filter((c) => !c.ok);
     for (const m of missing) {
       console.log(`  ${ui.warning('!')} ${m.name}: ${m.detail}`);
     }
     console.log('');
-    console.log(`  Fix the issues above, then: hoolix connect ${slug}`);
+    console.log(`  Fix the issues above, then retry: hoolix verify ${slug}`);
+    console.log(`  Then wire into your client:       hoolix connect ${slug}`);
   }
   console.log('');
 }

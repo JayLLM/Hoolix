@@ -505,8 +505,12 @@ async function cmdCreateMcpServer(
     }
     console.log('');
     if (template.server?.npmPackage) {
-      printSection('Required package (installed by client on first run)');
-      console.log(`  ${ui.accent('›')} ${chalk.cyan(`npx -y ${template.server.npmPackage}@latest`)}`);
+      printSection('First-run note');
+      console.log(`  ${ui.accent('›')} Your client will run: ${chalk.cyan(`npx -y ${template.server.npmPackage}@latest`)}`);
+      console.log(`  ${ui.muted('The package is downloaded from npm on first use (5–30 s on a fast connection).')}`);
+      if (templateId === 'puppeteer') {
+        console.log(`  ${ui.warning('⚠')}  Puppeteer also downloads Chromium (~170 MB) on first run — this may take a minute.`);
+      }
       console.log('');
     }
   } catch (err: any) {

@@ -96,7 +96,7 @@ ${chalk.bold('Examples — Docs RAG (existing)')}
   ${ui.accent('›')} hoolix connect my-docs --client cursor
 
 ${chalk.bold('Status')}
-  ${ui.success('✓')} 14 official templates: docs-rag, github-docs, filesystem, github-api, postgres, sqlite, memory, sequential-thinking, brave-search, slack, puppeteer, google-maps, and more
+  ${ui.success('✓')} 15 official templates: fetch, filesystem, github-api, postgres, sqlite, memory, sequential-thinking, brave-search, slack, puppeteer, google-maps, docs-rag, and more
   ${ui.success('✓')} Credentials stored separately in credentials.json (0600) with env-var auto-detection
   ${ui.success('✓')} llms.txt-first, GitHub-aware ingestion; Fuse.js + optional hybrid BGE; grounded Source URLs
   ${ui.success('✓')} Streamable HTTP + stdio MCP transports; auth, rate limiting, audit, stats

@@ -58,7 +58,7 @@ src/
 │   ├── contracts.ts         # TypeScript interfaces for service inputs/results
 │   └── events.ts            # AppProgressEvent + emitProgress
 ├── catalog/
-│   └── templates.ts         # CatalogTemplateSchema: both docs-rag + mcp-server kinds; 14 official templates
+│   └── templates.ts         # CatalogTemplateSchema: both docs-rag + mcp-server kinds; 15 official templates
 ├── sources/                 # types.ts (ServerDefinitionSchema), registry.ts (CLI parsers), plugins.ts (custom)
 ├── tui/                     # index.tsx (pure-Node TUI, dynamic import only)
 ├── web/                     # Hono web GUI

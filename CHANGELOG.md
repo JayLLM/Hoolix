@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`fetch` template** (`mcp-server-fetch` via uvx) — zero-credential web browsing / URL fetching for AI agents. Brings official template count to 15.
+- **`hoolix verify` — package reachability check for mcp-server kind** — runs `npm view <package> version` (no download) to confirm the npm package exists on the registry. For uvx templates runs a probe via `uvx`. Failure now returns a clear actionable message instead of passing silently.
+- **First-run download warnings in `hoolix install` and `hoolix templates info`** — when a template uses `npx`, a note is printed: "first use downloads the package from npm (5–30 s)". Puppeteer gets an explicit Chromium size warning (~170 MB).
+- **VS Code project-level guidance in `hoolix connect`** — when `--client vscode` is used without `--project`, instead of a generic "no auto-write path" message, Hoolix now prints the exact command to run (`hoolix connect <slug> --client vscode --project`) with an explanation of the `.vscode/mcp.json` workflow.
+
+### Changed
+
+- README tagline updated: "Install, host, and share every MCP server — in one command." / "Your MCP home base. Zero config for the official servers."
+- `hoolix verify` missing-credential detail now includes the fix command (`hoolix secrets set <slug> <key>`).
+
 ## [0.0.1-beta.20] - 2026-06-04
 
 ### Fixed
