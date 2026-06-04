@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.1-beta.10] - 2026-06-04
+
 ### Changed
 
 - Overhauled user-facing documentation across the README, docs site, CLI help, TUI empty state, GUI copy, and examples to reflect the current Hoolix experience: TUI-first onboarding, trial servers, multi-source definitions, templates, private sources, stdio transport, scheduled reindexing, stats, team-safe bundles, and custom source plugins.
@@ -123,7 +125,8 @@ App currently hangs during github workflow. Will be investigated later.
 - Added optional hybrid RAG with lazy BGE embedding + RRF reranker behind `--hybrid` / `--embedding-model`.
 - Added one-command client wiring for Claude/Cursor/Windsurf/Continue/Cline/GrokBuild and `--json` scripting support.
 
-[Unreleased]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.9...HEAD
+[Unreleased]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.10...HEAD
+[0.0.1-beta.10]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.9...v0.0.1-beta.10
 [0.0.1-beta.9]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.8...v0.0.1-beta.9
 [0.0.1-beta.8]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.7...v0.0.1-beta.8
 [0.0.1-beta.7]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.6...v0.0.1-beta.7
