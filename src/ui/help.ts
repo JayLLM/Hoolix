@@ -11,7 +11,7 @@ ${chalk.bold('Usage')}
 ${chalk.bold('Server management')}
   ${ui.accent('(no command)')}          Open the TUI dashboard
   ${ui.accent('create')} [name]         Create from --url, --source, or --template (docs-rag + mcp-server kinds)
-  ${ui.accent('install')} <template>    Sugar for create --template <id> (mcp-server mental model)
+  ${ui.accent('install')} <template> [values…] Sugar for create --template (positional inputs; --name, --yes)
   ${ui.accent('templates')}             Browse official templates: list, info <id> (--json)
   ${ui.accent('list')}                  List registered servers (--json)
   ${ui.accent('info')} <slug>           Show definition, sources/config, index, and status (--json)
@@ -51,10 +51,11 @@ ${chalk.bold('System')}
 ${chalk.bold('Examples — MCP server templates (new)')}
   ${ui.accent('›')} hoolix templates list
   ${ui.accent('›')} hoolix templates info filesystem
-  ${ui.accent('›')} hoolix create "My Files" --template filesystem --yes
-  ${ui.accent('›')} hoolix create "GitHub" --template github-api --yes
+  ${ui.accent('›')} hoolix install filesystem /Users/jay/projects --yes
+  ${ui.accent('›')} hoolix install github-api --yes            (credentials prompted interactively)
+  ${ui.accent('›')} hoolix install memory --name "My Memory" --yes
+  ${ui.accent('›')} hoolix install postgres --credential databaseUrl=postgresql://… --yes
   ${ui.accent('›')} hoolix create "My DB" --template postgres --credential databaseUrl=postgresql://… --yes --json
-  ${ui.accent('›')} hoolix install memory
   ${ui.accent('›')} hoolix connect my-files --client claude
   ${ui.accent('›')} hoolix connect my-github --client claude-code --yes
   ${ui.accent('›')} hoolix connect my-files --dry-run
@@ -64,6 +65,8 @@ ${chalk.bold('Examples — MCP server templates (new)')}
   ${ui.accent('›')} hoolix secrets set my-github githubToken ghp_newtoken123
   ${ui.accent('›')} hoolix secrets set my-db databaseUrl   (interactive masked prompt)
   ${ui.accent('›')} hoolix secrets remove my-github githubToken --yes
+  ${ui.accent('›')} hoolix export my-github --file my-github.hoolix.json
+  ${ui.accent('›')} hoolix import my-github.hoolix.json --yes
 
 ${chalk.bold('Examples — Docs RAG (existing)')}
   ${ui.accent('›')} hoolix create "React Docs" --template docs-rag --url https://react.dev/llms.txt --yes

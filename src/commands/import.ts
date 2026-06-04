@@ -5,7 +5,7 @@ import { getServerMetadata, registerServer, slugify } from '../core/registry.js'
 import { getServerDataDir } from '../core/paths.js';
 import { logger } from '../core/logger.js';
 import { generateAuthKey } from '../lib/auth.js';
-import { printTitle, printDetails, printCommand, printJson, truncate, maskSecret, parseOption } from '../ui/format.js';
+import { printTitle, printDetails, printCommand, printJson, truncate, maskSecret, parseOption, ui } from '../ui/format.js';
 import type { EmbeddingModel } from '../rag/models.js';
 
 export async function cmdImport(args: string[], json: boolean): Promise<void> {
@@ -73,8 +73,18 @@ export async function cmdImport(args: string[], json: boolean): Promise<void> {
     await fs.writeJson(path.join(dataDir, 'embeddings.json'), bundle.embeddings, { spaces: 2 });
   }
 
+  const isMcpServer = (meta as any).serverKind === 'mcp-server';
+  const missingCredentials: string[] = isMcpServer ? ((meta as any).credentialKeys ?? []) : [];
+
   if (json) {
-    printJson({ ok: true, slug, name: meta.name, chunks: bundle.chunks.length, authKey: maskSecret(authKey) });
+    printJson({
+      ok: true, slug, name: meta.name, chunks: bundle.chunks.length, authKey: maskSecret(authKey),
+      ...(missingCredentials.length > 0 ? {
+        credentialsRequired: true,
+        missingCredentials,
+        next: missingCredentials.map((k: string) => `hoolix secrets set ${slug} ${k} <value>`),
+      } : {}),
+    });
     return;
   }
 
@@ -83,6 +93,16 @@ export async function cmdImport(args: string[], json: boolean): Promise<void> {
     ['Chunks',    bundle.chunks.length],
     ['Source',    truncate(meta.sourceUrl, 92)],
     ['Auth key',  bundle.includeKey ? 'preserved from export' : 'generated fresh'],
+    ...(isMcpServer ? [['Kind', 'mcp-server'] as [string, string]] : []),
   ]);
+  if (isMcpServer && missingCredentials.length > 0) {
+    console.log('');
+    console.log(`  ${ui.warning('!')} Credentials are not stored in bundles. Add them now:`);
+    for (const key of missingCredentials) {
+      printCommand(`hoolix secrets set ${slug} ${key}`);
+    }
+    console.log(`  ${ui.muted('(prompts securely if value is omitted)')}`);
+    console.log('');
+  }
   printCommand(`hoolix verify ${slug}`);
 }

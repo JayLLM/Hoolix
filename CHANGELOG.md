@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`hoolix install` positional syntax** — `hoolix install <template-id> [positional-values...] [--name <name>] [--yes]`. Positional arguments are mapped to the template's required inputs in definition order (e.g. `hoolix install filesystem /Users/jay/projects --yes` maps `/Users/jay/projects` to `allowedPath`). Falls back to interactive prompts for any missing required inputs. Existing `--input key=value` flags take precedence over positionals. `--name <name>` sets the server name without an interactive prompt.
+- **`hoolix export` credential note** — for `mcp-server` kind servers, the exported bundle now includes a top-level `credentialsNote` object listing the required credential keys and setup instructions. The human-readable output prints exact `hoolix secrets set` commands to run after importing.
+- **`hoolix import` credential instructions** — after importing a bundle for an `mcp-server` kind server, the CLI prints exact `hoolix secrets set <slug> <key>` commands for each required credential. JSON output includes `credentialsRequired: true`, `missingCredentials: [...]`, and a `next` array with the commands.
+
 ## [0.0.1-beta.14] - 2026-06-04
 
 ### Added

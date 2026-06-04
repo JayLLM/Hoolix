@@ -19,6 +19,87 @@ import {
 
 // ── CLI parsing helpers ───────────────────────────────────────────────────────
 
+/**
+ * Transforms `hoolix install <templateId> [positional-values...] [--name <name>] [flags]`
+ * into a create-compatible args array with explicit `--template` and `--input` flags.
+ * Exits with an error if the template is unknown.
+ */
+async function normalizeInstallArgs(args: string[], json: boolean): Promise<string[]> {
+  const templateId = args[1];
+  if (!templateId || templateId.startsWith('-')) {
+    if (json) {
+      printJson({ ok: false, error: 'Usage: hoolix install <template-id> [values...] [flags]' });
+    } else {
+      logger.error('Usage: hoolix install <template-id> [positional-values...] [--name <name>] [--yes]');
+      printCommand('hoolix templates list');
+    }
+    process.exit(1);
+  }
+
+  // Collect positional values — non-flag args between templateId and first flag
+  const positionals: string[] = [];
+  let firstFlagIdx = args.length;
+  for (let i = 2; i < args.length; i++) {
+    if (args[i].startsWith('-')) { firstFlagIdx = i; break; }
+    positionals.push(args[i]);
+  }
+  const flagArgs = args.slice(firstFlagIdx);
+
+  // Already using explicit --template: pass through unchanged
+  if (flagArgs.includes('--template')) return args;
+
+  // Load template early to map positionals to named inputs
+  let template: Awaited<ReturnType<typeof getTemplate>>;
+  try {
+    template = await getTemplate(templateId);
+  } catch (e: any) {
+    if (json) printJson({ ok: false, error: e?.message || String(e) });
+    else { logger.error(e?.message || String(e)); printCommand('hoolix templates list'); }
+    process.exit(1);
+    return args; // unreachable — satisfies TS
+  }
+
+  // Extract --name flag and strip it from flagArgs (name will live at args[1])
+  const nameFromFlag = parseOption(flagArgs, '--name');
+  const cleanedFlags: string[] = [];
+  for (let i = 0; i < flagArgs.length; i++) {
+    if (flagArgs[i] === '--name' && i + 1 < flagArgs.length) { i++; continue; }
+    cleanedFlags.push(flagArgs[i]);
+  }
+
+  // Map positionals → required input names (skip keys already set via --input)
+  const existingInputs = parseCliInputs(cleanedFlags);
+  const inputFlags: string[] = [];
+  if (positionals.length > 0) {
+    const requiredInputs = template.inputs.filter((i) => i.required);
+    positionals.forEach((val, idx) => {
+      const input = requiredInputs[idx];
+      if (input && !existingInputs[input.name]) {
+        inputFlags.push('--input', `${input.name}=${val}`);
+      }
+    });
+  }
+
+  // docs-rag: positional[0] is the URL (when no --url flag already present)
+  const urlFlags: string[] = [];
+  if (
+    template.kind !== 'mcp-server' &&
+    positionals.length > 0 &&
+    !cleanedFlags.includes('--url')
+  ) {
+    urlFlags.push('--url', positionals[0]);
+  }
+
+  return [
+    'install',
+    ...(nameFromFlag ? [nameFromFlag] : []),
+    '--template', templateId,
+    ...inputFlags,
+    ...urlFlags,
+    ...cleanedFlags,
+  ];
+}
+
 function parseCliInputs(args: string[]): Record<string, string> {
   const inputs: Record<string, string> = {};
   for (let i = 0; i < args.length; i++) {
@@ -91,9 +172,12 @@ async function promptTemplateInputs(
 // ── Main command ──────────────────────────────────────────────────────────────
 
 export async function cmdCreate(args: string[], json: boolean): Promise<void> {
-  if (!json) intro(chalk.bold('hoolix create'));
+  const isInstall = args[0] === 'install';
+  if (isInstall) args = await normalizeInstallArgs(args, json);
+  if (!json) intro(chalk.bold(isInstall ? 'hoolix install' : 'hoolix create'));
 
-  let name = args[1];
+  let name: string | undefined = args[1];
+  if (name?.startsWith('-')) name = undefined; // install mode: name will be prompted
   let url  = '';
   let sources: SourceDefinition[] = [];
   let templateDefinition: ServerDefinition | undefined;

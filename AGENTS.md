@@ -161,6 +161,41 @@ Templates are typed as `kind: 'docs-rag'` or `kind: 'mcp-server'`. The kind dete
 - When adding a new command that touches RAG, add a `serverKind === 'mcp-server'` guard.
 - Adding a new `mcp-server` template: add to `src/catalog/templates.ts` OFFICIAL_TEMPLATES array only.
 
+#### Community Templates
+
+Users can drop custom `*.json` files into `~/.hoolix/templates/` (or override with `HOOLIX_TEMPLATE_DIR`) to create third-party or private templates. The loader (`src/catalog/community.ts`) validates each file against `CatalogTemplateSchema`, emits `logger.warn` for invalid files, and returns valid templates sorted by ID. `listTemplates()` transparently merges official + community.
+
+**Minimum community template JSON** (use `hoolix templates info <id>` for the full official format):
+
+```json
+{
+  "id": "my-jira",
+  "name": "Jira MCP",
+  "version": "1.0.0",
+  "kind": "mcp-server",
+  "category": "community",
+  "description": "Query Jira issues via MCP.",
+  "tags": ["jira"],
+  "inputs": [
+    { "name": "jiraHost", "label": "Jira host", "description": "e.g. your-org.atlassian.net", "required": true }
+  ],
+  "credentials": [
+    { "name": "jiraToken", "label": "Jira API Token", "description": "Atlassian API token",
+      "envVar": "JIRA_API_TOKEN", "required": true, "sensitive": true }
+  ],
+  "sources": [],
+  "server": {
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "mcp-jira@latest", "--host", "{jiraHost}"],
+    "env": { "JIRA_API_TOKEN": "{jiraToken}" }
+  }
+}
+```
+
+- `hoolix templates list --community` shows community templates and prints the directory.
+- `hoolix doctor` reports the community template count.
+
 ### 10. Documentation as Code (Non-Negotiable)
 - Every CLI/behavior change → update:
   - README (hero, table, quickstart, examples, limitations, "why").

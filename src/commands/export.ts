@@ -2,7 +2,7 @@ import path from 'node:path';
 import fs from 'fs-extra';
 import { getServerMetadata } from '../core/registry.js';
 import { getServerDataDir } from '../core/paths.js';
-import { printTitle, printDetails, printJson, parseOption } from '../ui/format.js';
+import { printTitle, printDetails, printCommand, printJson, parseOption, ui } from '../ui/format.js';
 
 export async function cmdExport(args: string[], json: boolean): Promise<void> {
   const slug = args[1];
@@ -29,6 +29,9 @@ export async function cmdExport(args: string[], json: boolean): Promise<void> {
     includeSourceAuth,
   });
 
+  const isMcpServer = (meta as any).serverKind === 'mcp-server';
+  const credentialKeys: string[] = isMcpServer ? ((meta as any).credentialKeys ?? []) : [];
+
   const bundle = {
     version: 2,
     exportedAt: new Date().toISOString(),
@@ -39,6 +42,13 @@ export async function cmdExport(args: string[], json: boolean): Promise<void> {
       strippedSourceAuth: !includeSourceAuth,
     },
     includeKey: !stripKey,
+    ...(isMcpServer && credentialKeys.length > 0 ? {
+      credentialsNote: {
+        required: true,
+        keys: credentialKeys,
+        setup: `Credentials are not exported. After importing, run: hoolix secrets set <slug> <key> for each key listed above.`,
+      },
+    } : {}),
     metadata: exportedMeta,
     chunks,
     embeddings: team ? null : embeddings,
@@ -62,6 +72,13 @@ export async function cmdExport(args: string[], json: boolean): Promise<void> {
   ]);
   if (stripKey) {
     console.log(`  A fresh auth key will be generated on import.`);
+  }
+  if (isMcpServer && credentialKeys.length > 0) {
+    console.log('');
+    console.log(`  ${ui.warning('!')} Credentials are not included in the bundle. After importing, run:`);
+    for (const key of credentialKeys) {
+      printCommand(`hoolix secrets set ${slug} ${key}`);
+    }
   }
 }
 
