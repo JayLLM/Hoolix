@@ -1,15 +1,20 @@
-import { checkForUpdate, performUpdate } from '../core/updater.js';
+import { checkForUpdate, performUpdate, getInstallMethod } from '../core/updater.js';
 import { listServers } from '../core/registry.js';
 import { serverManager } from '../process/manager.js';
 import { logger } from '../core/logger.js';
 import { printJson } from '../ui/format.js';
 
-export async function cmdUpdate(json: boolean): Promise<void> {
+export async function cmdUpdate(args: string[], json: boolean): Promise<void> {
+  const noVerify = args.includes('--no-verify');
+  const installMethod = getInstallMethod();
   if (!json) logger.info('Checking for updates...');
+  if (!json && installMethod === 'npm') {
+    logger.info('Installed via npm. For updates: npm update -g hoolix');
+  }
 
   const updateInfo = await checkForUpdate();
   if (!updateInfo.isOutdated) {
-    if (json) printJson({ ok: true, updated: false, ...updateInfo });
+    if (json) printJson({ ok: true, updated: false, installMethod, ...updateInfo });
     else logger.success(`You are already on the latest version (${updateInfo.currentVersion}).`);
     return;
   }
@@ -39,7 +44,7 @@ export async function cmdUpdate(json: boolean): Promise<void> {
   }
 
   try {
-    const success = await performUpdate(restartSlugs, { quiet: json });
+    const success = await performUpdate(restartSlugs, { quiet: json, noVerify });
     if (success) {
       if (json) printJson({ ok: true, updated: true, ...updateInfo, restarted: restartSlugs });
       else logger.success('Update completed successfully!');

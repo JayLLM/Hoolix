@@ -47,9 +47,14 @@ ${chalk.bold('System')}
   ${ui.accent('completion')} <shell>    Generate tab-completion script (bash | zsh | fish | powershell)
   ${ui.accent('gui')}                   Launch the local web dashboard (token auth, catalog, stats, playground)
   ${ui.accent('doctor')} [--json]       Diagnose installation, paths, config, runtime, and proxy status
-  ${ui.accent('update')}                Check for and install the latest version (--json)
+  ${ui.accent('update')} [--no-verify]  Check for and install the latest version (--json)
   ${ui.accent('uninstall')} [--yes]     Completely remove hoolix, servers/data, binary, and PATH entries
   ${ui.accent('version')}               Print the current version
+
+${chalk.bold('Install')}
+  ${ui.accent('npm install -g hoolix')}   Recommended — provenance-verified via npm registry
+  ${ui.accent('hoolix update')}           Self-update compiled binary (SHA-256 verified)
+  ${ui.accent('npm update -g hoolix')}    Update npm global install
 
 ${chalk.bold('Examples — MCP server templates')}
   ${ui.accent('›')} hoolix templates list

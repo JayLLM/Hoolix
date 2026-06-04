@@ -9,6 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **npm global package** (`npm install -g hoolix`) — v1.0.0 is the first stable release published to npm. The bin shim now uses dynamic `import()` in the same process (no subprocess overhead, correct signal handling for TUI Ctrl+C, faster startup). Includes `STABILITY.md` and `postinstall.js` welcome message. npm publishes with [provenance](https://docs.npmjs.com/generating-provenance-statements) via GitHub Actions (`id-token: write`).
+- **Free binary signing** — GitHub Releases now attach a `SHA256SUMS` file for all platform binaries. GPG `.asc` detached signatures are generated when the `GPG_PRIVATE_KEY` repository secret is set (optional; non-blocking). Both the `install.sh` and `install.ps1` scripts verify SHA-256 checksums automatically.
+- **Updater SHA-256 verification** (`hoolix update`) — after downloading the new binary, the updater fetches `SHA256SUMS` from the GitHub Release and verifies the hash before applying the update. A mismatch aborts the update with a clear error. Pass `--no-verify` to skip. Auto-update now also detects npm global installs and advises `npm update -g hoolix` instead of binary self-replace.
+- **Windows `install.ps1` SHA-256 verification** — checksum verification added to the Windows PowerShell installer. npm recommendation added to the banner.
+- **`hoolix doctor` install-method detection** — reports `npm global install (provenance-verified)` vs `standalone binary (verify via SHA256SUMS)` vs `development/source`. Shows appropriate update command at the bottom (`npm update -g hoolix` vs `hoolix update`).
+- **`hoolix update --no-verify`** — skip SHA-256 checksum verification when downloading a binary update (for air-gapped or testing scenarios).
+- **`install.sh` SHA-256 verification** — checksum verification added to the Linux/macOS bash installer. `npm install -g hoolix` recommended at the top.
+- **npm release job** in `release.yml` — new `publish-npm` job runs `bun run build` → `npm publish --access public --provenance` on non-beta releases. Gated on `NPM_TOKEN` secret.
+- **`STABILITY.md`** — versioning policy, stable CLI surface, stable `--json` schema, on-disk file format stability, and LTS policy (security fixes for 24 months after v1.0).
+
+### Changed
+
+- `bin/hoolix.js` — production path now uses `await import(distEntry)` in the same process instead of `spawnSync`. Dev fallback still uses tsx spawnSync.
+- `package.json` — version bumped to `1.0.0`; added `"exports": { ".": "./dist/index.js" }`; added `postinstall` script; added `STABILITY.md` to `"files"`. Description updated.
+- `hoolix update` — detects npm vs binary install and gives the right update command.
+- `release.yml` — `attach-binaries` job renamed to `attach-release-assets`; new `publish-npm` job added; release notes body now includes verification instructions and install commands.
+
+### Added (pre-v1.0 accumulated, earlier betas)
+
+- **Shell completions** (`hoolix completion bash|zsh|fish|powershell`) — tab-complete commands, slugs, template IDs, client names.
+- **Multi-server bundle** (`hoolix bundle export|import`) — export/import multiple servers; credentials never exported.
+- **14 official templates** — filesystem, github-api, postgres, sqlite, memory, sequential-thinking, brave-search, slack, puppeteer, google-maps, docs-rag, github-docs, hoolix-docs, terraform-aws-docs.
+- **Proxy mode** (`hoolix start <slug> --proxy`) — auto-restart, health monitoring, SSE phase 1.
+- **`hoolix list` proxy status** — `proxy:PORT` in Status column.
+- **Community templates** — `~/.hoolix/templates/*.json`.
+- **`hoolix secrets *`** — credential CRUD for mcp-server kind.
+- **`hoolix connect`** — 9 supported clients (claude, claude-code, cursor, vscode, windsurf, continue, cline, codex, grokbuild, generic).
+- **`hoolix export / import`** — single-server bundle round-trip with credential notes.
+- **TUI** — kind-aware detail panel, proxy status, `s/c/x/v` key handlers.
+- **`hoolix install <template> [positionals]`** — sugar for create --template.
+
+### Added
+
 - **Shell completions** (`hoolix completion bash|zsh|fish|powershell`) — generates ready-to-source tab-completion scripts. Dynamic slug and template ID completion via `hoolix list --json` and `hoolix templates list --json`. Update check suppressed during completion output.
 - **Multi-server bundle** (`hoolix bundle export|import`) — export multiple servers into a single `.hoolix.json` bundle; import restores all servers with fresh auth keys and prints `hoolix secrets set` instructions for mcp-server credentials. Format: `version: 1, type: 'multi-server-bundle'`. Credentials are never exported (same invariant as single-server export).
 - **6 new official templates** (total now 11): `sequential-thinking`, `brave-search`, `slack`, `puppeteer`, `google-maps` (all npm-based mcp-server kind), each with credential definitions, tags, and `proxyable: true`. Brings the official catalog from 5 to 11 templates.

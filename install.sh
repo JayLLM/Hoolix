@@ -25,14 +25,12 @@ fi
 
 print_banner() {
   echo ""
-  echo -e "${CYAN}  ███╗   ███╗ ██████╗██████╗       ██████╗  ██████╗ ██████╗ ████████╗ █████╗ ██╗     ${NC}"
-  echo -e "${CYAN}  ████╗ ████║██╔════╝██╔══██╗      ██╔══██╗██╔═══██╗██╔══██╗╚══██╔══╝██╔══██╗██║     ${NC}"
-  echo -e "${CYAN}  ██╔████╔██║██║     ██████╔╝█████╗██████╔╝██║   ██║██████╔╝   ██║   ███████║██║     ${NC}"
-  echo -e "${CYAN}  ██║╚██╔╝██║██║     ██╔═══╝ ╚════╝██╔═══╝ ██║   ██║██╔══██╗   ██║   ██╔══██║██║     ${NC}"
-  echo -e "${CYAN}  ██║ ╚═╝ ██║╚██████╗██║           ██║     ╚██████╔╝██║  ██║   ██║   ██║  ██║███████╗${NC}"
-  echo -e "${CYAN}  ╚═╝     ╚═╝ ╚═════╝╚═╝           ╚═╝      ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚══════╝${NC}"
+  echo -e "  ${CYAN}◆ hoolix — The MCP server platform.${NC}"
   echo ""
-  echo -e "  ${CYAN}Forge documentation into powerful MCP servers.${NC}"
+  echo -e "  ${YELLOW}Recommended install: npm install -g hoolix${NC}"
+  echo -e "  ${CYAN}(npm is provenance-verified and updates with: npm update -g hoolix)${NC}"
+  echo ""
+  echo -e "  This script installs the standalone binary. Continuing..."
   echo ""
 }
 
@@ -170,6 +168,38 @@ else
   warn "This usually means no release has been published yet."
   rm -f "$TMP_FILE" || true
   exit 1
+fi
+
+# SHA-256 checksum verification (optional — non-fatal if checksum file unavailable)
+CHECKSUM_URL="https://github.com/${REPO}/releases/download/${VERSION}/SHA256SUMS"
+info "Verifying SHA-256 checksum..."
+if CHECKSUMS=$(curl -fsSL --max-time 10 "$CHECKSUM_URL" 2>/dev/null); then
+  EXPECTED_HASH=$(printf '%s' "$CHECKSUMS" | grep -F "$ASSET_NAME" | awk '{print $1}' || true)
+  if [ -n "$EXPECTED_HASH" ]; then
+    if command -v sha256sum >/dev/null 2>&1; then
+      ACTUAL_HASH=$(sha256sum "$TMP_FILE" | awk '{print $1}')
+    elif command -v shasum >/dev/null 2>&1; then
+      ACTUAL_HASH=$(shasum -a 256 "$TMP_FILE" | awk '{print $1}')
+    else
+      ACTUAL_HASH=""
+      warn "sha256sum / shasum not found — skipping checksum verification."
+    fi
+    if [ -n "$ACTUAL_HASH" ]; then
+      if [ "$ACTUAL_HASH" = "$EXPECTED_HASH" ]; then
+        success "SHA-256 checksum verified."
+      else
+        error "SHA-256 mismatch — download may be corrupted."
+        warn "Use 'npm install -g hoolix' for provenance-verified installs."
+        rm -f "$TMP_FILE" || true
+        exit 1
+      fi
+    fi
+  else
+    warn "Binary not found in SHA256SUMS — skipping checksum verification."
+  fi
+else
+  warn "SHA256SUMS not available — skipping checksum verification."
+  warn "For verified installs: npm install -g hoolix"
 fi
 
 # Install

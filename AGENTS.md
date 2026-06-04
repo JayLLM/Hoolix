@@ -243,6 +243,29 @@ Users can drop custom `*.json` files into `~/.hoolix/templates/` (or override wi
 - Before submit: `bun test`, `npx tsc --noEmit`, fresh binary smoke for dist changes.
 - Review checklist in PR template.
 
+### 13. npm Package + Release Invariants
+
+**npm global package (`npm install -g hoolix`):**
+- `bin/hoolix.js` uses `await import(distEntry)` in the SAME process (no subprocess). Gives correct signal handling (TUI Ctrl+C) and fast startup.
+- `npm run build` (tsc → dist/) runs via `prepublishOnly` before `npm publish`.
+- `npm publish --provenance` in CI requires `id-token: write` permission.
+- `dist/index.js` is the compiled entry point; it's included in `"files"`.
+- Update check is skipped for `completion` command (clean output required).
+
+**SHA-256 checksums + GPG signing:**
+- `SHA256SUMS` is generated in `attach-release-assets` job and attached to every GitHub Release.
+- GPG `.asc` signatures generated only if `GPG_PRIVATE_KEY` repo secret is set (optional).
+- `hoolix update` downloads `SHA256SUMS` and verifies the hash before applying. `--no-verify` skips.
+- `install.sh` and `install.ps1` both verify SHA-256 when `SHA256SUMS` is available.
+
+**Release flow:**
+1. `release.yml` → `prepare-release` (release-it → bump, CHANGELOG, tag, GitHub Release)
+2. `build-binaries` (matrix: linux-x64, linux-arm64, darwin-arm64, windows-x64)
+3. `publish-npm` (build + `npm publish --provenance`) — non-beta releases only
+4. `attach-release-assets` (SHA256SUMS + optional GPG .asc + release notes with install cmds)
+
+**Version file:** `src/core/version.ts` — `export const VERSION = "x.y.z"`. Must match `package.json`. Baked into binaries at `bun build --compile`.
+
 ## Development Workflow
 
 ```bash

@@ -9,16 +9,18 @@ import { getServerDataDir, getServerCredentialsPath } from '../core/paths.js';
 import { listTemplates } from '../app/services/catalog.js';
 import { listSourcePlugins } from '../sources/plugins.js';
 import { getCommunityTemplateDir } from '../catalog/community.js';
+import { getInstallMethod } from '../core/updater.js';
 import { printTitle, printCommand, printDetails, printJson, ui } from '../ui/format.js';
 
 export async function cmdDoctor(json: boolean): Promise<void> {
   const results: Record<string, unknown> = {};
   const checks: Array<{ name: string; ok: boolean; detail?: string }> = [];
 
-  const execPath        = process.execPath;
+  const execPath         = process.execPath;
   const isCompiledBinary = !execPath.includes('node') && !execPath.includes('bun') && !execPath.includes('tsx');
-  const runtime         = isCompiledBinary ? 'compiled-binary (bun)' : execPath.includes('bun') ? 'bun' : 'node';
-  const platform        = `${process.platform} ${process.arch}`;
+  const installMethod    = getInstallMethod();
+  const runtime          = isCompiledBinary ? 'compiled-binary (bun)' : execPath.includes('bun') ? 'bun' : 'node';
+  const platform         = `${process.platform} ${process.arch}`;
 
   const runtimeInfo = {
     version:  VERSION,
@@ -27,8 +29,35 @@ export async function cmdDoctor(json: boolean): Promise<void> {
     execPath: execPath.slice(0, 120) + (execPath.length > 120 ? '...' : ''),
     node:     process.version,
   };
-  results.runtime = runtimeInfo;
+  results.runtime = { ...runtimeInfo, installMethod };
   checks.push({ name: 'runtime', ok: true, detail: `${runtime} on ${platform}` });
+
+  // Install method + signing status
+  if (isCompiledBinary) {
+    checks.push({
+      name: 'install-method',
+      ok: true,
+      detail: 'standalone binary — verify with SHA256SUMS from GitHub Releases',
+    });
+    checks.push({
+      name: 'binary-signing',
+      ok: true,   // informational — GPG signing is optional
+      detail: 'GPG .asc signature available on GitHub Releases (if GPG_PRIVATE_KEY secret set). ' +
+              'For verified installs: npm install -g hoolix',
+    });
+  } else if (installMethod === 'npm') {
+    checks.push({
+      name: 'install-method',
+      ok: true,
+      detail: 'npm global install — provenance-verified via registry.npmjs.org',
+    });
+  } else {
+    checks.push({
+      name: 'install-method',
+      ok: true,
+      detail: 'development / source (tsx)',
+    });
+  }
 
   try {
     const paths = await ensureDirectories();
@@ -206,7 +235,8 @@ export async function cmdDoctor(json: boolean): Promise<void> {
   console.log('');
   if (allOk) {
     console.log(`  ${ui.success('✓')} All checks passed. Installation looks healthy.`);
-    printCommand('hoolix create "My Docs" --url https://example.com/llms.txt --yes');
+    printCommand('hoolix install filesystem /Users/me/projects --yes');
+    printCommand('hoolix install brave-search --yes');
     printCommand('hoolix templates list');
     printCommand('hoolix start my-docs && hoolix connect my-docs --client cursor');
     printCommand('hoolix start my-docs --transport stdio --json');
@@ -217,6 +247,14 @@ export async function cmdDoctor(json: boolean): Promise<void> {
   console.log('');
   console.log(`  ${ui.muted('Security:')} keys are per-server + rotatable; rate limits + audit.log enabled in host (see \`hoolix audit <slug>\`).`);
   console.log(`  ${ui.muted('Private sources:')} use --header "Authorization: Bearer <token>", --cookie "...", or GITHUB_TOKEN for private GitHub.`);
+  console.log('');
+  if (!isCompiledBinary) {
+    console.log(`  ${ui.muted('Install:')} npm install -g hoolix   ${ui.muted('(recommended — npm provenance verified)')}`);
+    console.log(`  ${ui.muted('Update:')}  npm update -g hoolix`);
+  } else {
+    console.log(`  ${ui.muted('Update:')} hoolix update   ${ui.muted('(SHA-256 verified download)')}`);
+    console.log(`  ${ui.muted('Or use npm:')} npm install -g hoolix   ${ui.muted('(provenance verified)')}`);
+  }
 
   if (!allOk) process.exit(1);
 }

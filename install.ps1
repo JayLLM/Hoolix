@@ -25,8 +25,12 @@ $GitHubApi = "https://api.github.com/repos/$Repo/releases"
 
 function Write-Banner {
     Write-Host ""
-    Write-Host "  Hoolix" -ForegroundColor Cyan
-    Write-Host "  Forge documentation into powerful MCP servers." -ForegroundColor DarkGray
+    Write-Host "  Hoolix — The MCP server platform." -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  Recommended: npm install -g hoolix" -ForegroundColor Yellow
+    Write-Host "  (npm installs are provenance-verified and update easily with npm update -g hoolix)" -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "  This script installs the standalone binary. Continuing..." -ForegroundColor DarkGray
     Write-Host ""
 }
 
@@ -178,6 +182,33 @@ try {
 
     if (-not (Test-Path $tmp)) {
         throw "Download did not create $tmp."
+    }
+
+    # ── SHA-256 checksum verification (optional) ─────────────────────────────
+    try {
+      $checksumUrl = "https://github.com/$Repo/releases/download/$($release.tag_name)/SHA256SUMS"
+      $checksumText = (Invoke-WebRequest -Uri $checksumUrl -UseBasicParsing -ErrorAction SilentlyContinue).Content
+      if ($checksumText) {
+        $lines = $checksumText -split "`n"
+        $line  = $lines | Where-Object { $_ -match [regex]::Escape($assetName) } | Select-Object -First 1
+        if ($line) {
+          $expectedHash = ($line.Trim() -split "\s+")[0].ToLower()
+          $actualHash   = (Get-FileHash -Path $tmp -Algorithm SHA256).Hash.ToLower()
+          if ($actualHash -eq $expectedHash) {
+            Write-Success "SHA-256 checksum verified."
+          } else {
+            Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+            throw "SHA-256 mismatch — binary may be corrupted. Try again or use: npm install -g hoolix"
+          }
+        } else {
+          Write-Warn "Binary not found in SHA256SUMS — skipping checksum verification."
+        }
+      } else {
+        Write-Warn "SHA256SUMS not available for this release — skipping checksum verification."
+        Write-Warn "Use 'npm install -g hoolix' for provenance-verified installs."
+      }
+    } catch [System.Net.WebException] {
+      Write-Warn "Checksum file not reachable — skipping verification."
     }
 
     Write-Step "Installing to $target"

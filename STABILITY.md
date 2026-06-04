@@ -1,6 +1,24 @@
 # Hoolix Stability & Versioning Promises
 
+**Current stable version: 1.0.0 (released 2026-06-04)**
+
 This document describes what is stable, what may change, and the versioning policy for Hoolix v1.0 and beyond.
+
+## Installation (recommended)
+
+```bash
+npm install -g hoolix        # recommended — provenance-verified
+```
+
+Standalone binary (Linux/macOS):
+```bash
+curl -fsSL https://raw.githubusercontent.com/JayLLM/hoolix/main/install.sh | bash
+```
+
+Standalone binary (Windows):
+```powershell
+iwr -useb https://raw.githubusercontent.com/JayLLM/hoolix/main/install.ps1 | iex
+```
 
 ---
 

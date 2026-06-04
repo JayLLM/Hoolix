@@ -1,7 +1,7 @@
 {
   "name": "hoolix",
-  "version": "0.0.1-beta.16",
-  "description": "Forge documentation into powerful, secure Hoolix MCP servers. Production-grade CLI for turning docs URLs into hostable MCP servers for Grok, Claude, Cursor, and other agents.",
+  "version": "1.0.0",
+  "description": "The MCP server platform. Turn any docs URL, GitHub repo, or template into a hosted, authenticated MCP server for Claude, Cursor, Grok, and other AI agents.",
   "keywords": [
     "mcp",
     "model-context-protocol",
@@ -11,8 +11,12 @@
     "rag",
     "llms.txt",
     "ai-agents",
+    "claude",
+    "cursor",
     "grok",
-    "claude"
+    "filesystem",
+    "github",
+    "postgres"
   ],
   "homepage": "https://github.com/JayLLM/hoolix",
   "bugs": "https://github.com/JayLLM/hoolix/issues",
@@ -24,6 +28,9 @@
   "author": "Hoolix contributors",
   "type": "module",
   "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js"
+  },
   "bin": {
     "hoolix": "./bin/hoolix.js"
   },
@@ -31,7 +38,8 @@
     "bin",
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "STABILITY.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -48,6 +56,7 @@
     "build:binary:win": "bun build --compile src/index.ts --outfile dist-bin/hoolix.exe --minify",
     "build:binary:linux": "bun build --compile src/index.ts --outfile dist-bin/hoolix --minify",
     "build:binary:mac": "bun build --compile src/index.ts --outfile dist-bin/hoolix --minify",
+    "postinstall": "node bin/postinstall.js 2>/dev/null || true",
     "prepublishOnly": "npm run build",
     "release": "release-it",
     "release:beta": "release-it --preRelease=beta --github.preRelease=true",

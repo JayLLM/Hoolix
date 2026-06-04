@@ -182,7 +182,7 @@ async function main() {
     }
     case 'update': {
       const { cmdUpdate } = await import('./commands/update.js');
-      await cmdUpdate(jsonOutput);
+      await cmdUpdate(args, jsonOutput);
       return;
     }
     case 'uninstall': {
