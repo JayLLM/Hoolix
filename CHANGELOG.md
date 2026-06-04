@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.1-beta.16] - 2026-06-04
+
 ### Added
 
 - **Proxy mode** (`hoolix start <slug> --proxy`) — wraps any `mcp-server` kind server behind an authenticated Hono HTTP endpoint, using the same auth, rate-limiting, and audit middleware as the docs-rag host. Enables sharing the same underlying server across multiple AI clients and remote access.
@@ -213,7 +215,8 @@ App currently hangs during github workflow. Will be investigated later.
 - Added optional hybrid RAG with lazy BGE embedding + RRF reranker behind `--hybrid` / `--embedding-model`.
 - Added one-command client wiring for Claude/Cursor/Windsurf/Continue/Cline/GrokBuild and `--json` scripting support.
 
-[Unreleased]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.15...HEAD
+[Unreleased]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.16...HEAD
+[0.0.1-beta.16]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.15...v0.0.1-beta.16
 [0.0.1-beta.15]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.14...v0.0.1-beta.15
 [0.0.1-beta.14]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.13...v0.0.1-beta.14
 [0.0.1-beta.13]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.12...v0.0.1-beta.13
