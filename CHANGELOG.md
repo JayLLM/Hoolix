@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.1-beta.15] - 2026-06-04
+
 ### Added
 
 - **`hoolix install` positional syntax** — `hoolix install <template-id> [positional-values...] [--name <name>] [--yes]`. Positional arguments are mapped to the template's required inputs in definition order (e.g. `hoolix install filesystem /Users/jay/projects --yes` maps `/Users/jay/projects` to `allowedPath`). Falls back to interactive prompts for any missing required inputs. Existing `--input key=value` flags take precedence over positionals. `--name <name>` sets the server name without an interactive prompt.
@@ -200,7 +202,8 @@ App currently hangs during github workflow. Will be investigated later.
 - Added optional hybrid RAG with lazy BGE embedding + RRF reranker behind `--hybrid` / `--embedding-model`.
 - Added one-command client wiring for Claude/Cursor/Windsurf/Continue/Cline/GrokBuild and `--json` scripting support.
 
-[Unreleased]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.14...HEAD
+[Unreleased]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.15...HEAD
+[0.0.1-beta.15]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.14...v0.0.1-beta.15
 [0.0.1-beta.14]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.13...v0.0.1-beta.14
 [0.0.1-beta.13]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.12...v0.0.1-beta.13
 [0.0.1-beta.12]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.11...v0.0.1-beta.12
