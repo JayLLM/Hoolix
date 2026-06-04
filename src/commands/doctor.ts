@@ -8,6 +8,7 @@ import { listServers } from '../core/registry.js';
 import { getServerDataDir, getServerCredentialsPath } from '../core/paths.js';
 import { listTemplates } from '../app/services/catalog.js';
 import { listSourcePlugins } from '../sources/plugins.js';
+import { getCommunityTemplateDir } from '../catalog/community.js';
 import { printTitle, printCommand, printDetails, printJson, ui } from '../ui/format.js';
 
 export async function cmdDoctor(json: boolean): Promise<void> {
@@ -82,6 +83,25 @@ export async function cmdDoctor(json: boolean): Promise<void> {
     checks.push({ name: 'source-plugins', ok: true, detail: `${plugins.length} custom provider(s)` });
   } catch (e: any) {
     checks.push({ name: 'source-plugins', ok: false, detail: e.message || String(e) });
+  }
+
+  // Community templates directory (informational — always ok)
+  try {
+    const communityDir   = getCommunityTemplateDir();
+    const dirExists      = await fs.pathExists(communityDir);
+    const communityFiles = dirExists
+      ? (await fs.readdir(communityDir).catch(() => [])).filter((f: string) => f.endsWith('.json'))
+      : [];
+    results.communityTemplates = { dir: communityDir, count: communityFiles.length };
+    checks.push({
+      name: 'community-templates',
+      ok:   true,
+      detail: communityFiles.length > 0
+        ? `${communityFiles.length} template(s) at ${communityDir}`
+        : `none yet — add JSON files to ${communityDir}`,
+    });
+  } catch (e: any) {
+    checks.push({ name: 'community-templates', ok: false, detail: e.message || String(e) });
   }
 
   // ── mcp-server runtime tools ────────────────────────────────────────────────

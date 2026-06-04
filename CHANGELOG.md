@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Community template loader** (`src/catalog/community.ts`) — reads and validates `*.json` files from `~/.hoolix/templates/` (or `HOOLIX_TEMPLATE_DIR` env var override) against `CatalogTemplateSchema`. Invalid files emit `logger.warn` and are skipped; they never crash the CLI. Follows the exact `source-plugins.ts` pattern.
+- `listTemplates()` in `src/app/services/catalog.ts` now merges official + community templates; `getTemplate()` transparently resolves community templates by ID.
+- **`hoolix templates list --community`** — filter flag showing only community templates; if the directory is empty, shows the path to add templates to.
+- **`hoolix doctor` `community-templates` check** — reports how many templates are in `~/.hoolix/templates/` and prints the directory path for discoverability.
+- **TUI kind-aware detail panel** — for `mcp-server` kind servers the right panel now shows Kind, Template, Transport (`stdio`), and credential count instead of chunk count, index type, and freshness.
+- **TUI kind-aware key handlers**:
+  - `s` on mcp-server kind: prints "uses stdio transport — press c to copy config" instead of attempting HTTP host start.
+  - `v` on mcp-server kind: shows credential count and suggests `hoolix verify` instead of running RAG verify.
+  - `c` on mcp-server kind: builds `{ command, args, env }` stdio config by loading credentials + interpolating run config, then copies to clipboard.
+  - `x` on mcp-server kind: shows `hoolix secrets set <slug> <key> <value>` hint instead of triggering reindex.
+- Key help bar updated: `x reindex/secrets` replaces `x reindex`; empty-state guidance updated to include mcp-server template examples.
+
 ## [0.0.1-beta.13] - 2026-06-04
 
 ### Added

@@ -1,4 +1,5 @@
 import { getTemplate, listTemplates } from '../app/services/catalog.js';
+import { getCommunityTemplateDir } from '../catalog/community.js';
 import { sourceLabel } from '../sources/registry.js';
 import { logger } from '../core/logger.js';
 import {
@@ -16,20 +17,38 @@ export async function cmdTemplates(args: string[], json: boolean): Promise<void>
   const sub = args[1] || 'list';
 
   if (sub === 'list' || sub === 'ls') {
-    const templates = await listTemplates();
+    const communityOnly = args.includes('--community');
+    let templates = await listTemplates();
+    if (communityOnly) templates = templates.filter((t) => t.category === 'community');
+
     if (json) {
       printJson(templates);
       return;
     }
 
-    printTitle('Templates', `${templates.length} official MCP server templates`);
+    const communityCount = templates.filter((t) => t.category === 'community').length;
+    const officialCount  = templates.length - communityCount;
+    const subtitle = communityOnly
+      ? `${communityCount} community template${communityCount === 1 ? '' : 's'}`
+      : `${officialCount} official + ${communityCount} community template${templates.length === 1 ? '' : 's'}`;
+
+    printTitle('Templates', subtitle);
+
+    if (templates.length === 0 && communityOnly) {
+      const dir = getCommunityTemplateDir();
+      console.log(`  ${ui.muted('No community templates yet.')}`);
+      console.log(`  Add JSON files to: ${ui.accent(dir)}`);
+      console.log('');
+      printCommand('hoolix templates info filesystem   (see official template format)');
+      return;
+    }
 
     const rows = templates.map((t) => ({
-      ID:        t.id,
-      Name:      truncate(t.name, 26),
-      Kind:      t.kind ?? 'docs-rag',
-      Category:  t.category,
-      Inputs:    [
+      ID:       t.id,
+      Name:     truncate(t.name, 26),
+      Kind:     t.kind ?? 'docs-rag',
+      Category: t.category,
+      Inputs:   [
         ...t.inputs.filter((i) => i.required).map((i) => i.name),
         ...t.credentials.filter((c) => c.required).map((c) => c.envVar ?? c.name),
       ].join(', ') || '—',
@@ -42,6 +61,12 @@ export async function cmdTemplates(args: string[], json: boolean): Promise<void>
     printCommand('hoolix templates info docs-rag');
     printCommand('hoolix create "My Files" --template filesystem --yes');
     printCommand('hoolix create "React Docs" --template docs-rag --url https://react.dev/llms.txt --yes');
+    if (!communityOnly) {
+      const dir = getCommunityTemplateDir();
+      console.log('');
+      console.log(`  ${ui.muted('Community templates dir:')} ${dir}`);
+      console.log(`  ${ui.muted('Filter:')} hoolix templates list --community`);
+    }
     return;
   }
 

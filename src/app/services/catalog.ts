@@ -3,6 +3,7 @@ import {
   getOfficialTemplates,
   type CatalogTemplate,
 } from '../../catalog/templates.js';
+import { listCommunityTemplates } from '../../catalog/community.js';
 import type { ServerDefinition } from '../../sources/types.js';
 
 export interface TemplateInstantiation {
@@ -10,8 +11,14 @@ export interface TemplateInstantiation {
   definition: ServerDefinition;
 }
 
+/**
+ * Returns all templates: official (hardcoded) + community (from ~/.hoolix/templates/*.json).
+ * Sorted alphabetically by name.
+ */
 export async function listTemplates(): Promise<CatalogTemplate[]> {
-  return getOfficialTemplates().sort((a, b) => a.name.localeCompare(b.name));
+  const official  = getOfficialTemplates();
+  const community = await listCommunityTemplates();
+  return [...official, ...community].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function getTemplate(id: string): Promise<CatalogTemplate> {

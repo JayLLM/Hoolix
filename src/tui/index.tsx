@@ -28,6 +28,8 @@ import { getServerDir } from '../core/paths.js';
 import { logger } from '../core/logger.js';
 import { VERSION } from '../core/version.js';
 import { getServerSourceLabel, reindexServer, verifyServer } from '../app/services/servers.js';
+import { loadCredentials, interpolateRunConfig } from '../app/services/credentials.js';
+import { getTemplate } from '../app/services/catalog.js';
 
 // ── ANSI helpers ────────────────────────────────────────────────────────────
 
@@ -235,7 +237,8 @@ function buildFrame(state: TUIState): string {
 
   const sel = state.servers[state.selectedIndex];
   if (sel) {
-    const st = state.statuses[sel.slug] || { running: false };
+    const st          = state.statuses[sel.slug] || { running: false };
+    const isMcpServer = (sel as any).serverKind === 'mcp-server';
 
     const addRow = (label: string, value: string, valueColor = (v: string) => v) => {
       const l      = pad(label, 12);
@@ -250,52 +253,75 @@ function buildFrame(state: TUIState): string {
       rightColored.push('');
     };
 
-    addRow('Name',    sel.name || sel.slug);
-    addRow('Slug',    sel.slug);
-    addRow((sel.definition?.sources.length ?? 1) > 1 ? 'Sources' : 'Source', (sel.definition?.sources.length ?? 1) > 1 ? getServerSourceLabel(sel) : (sel.sourceUrl || '—'));
-    addRow('Chunks',  sel.chunkCount.toLocaleString());
-    addRow('Index',   sel.embeddingModel === 'fuse' ? 'Fuse.js' : `Hybrid (${sel.embeddingModel})`);
-    if (sel.definition?.template) addRow('Template', sel.definition.template.name);
-    addRow('Fresh',   freshnessLabel(sel.lastUpdatedAt));
-    addRow(
-      'Status',
-      st.running ? `running on :${st.port || '?'}` : 'stopped',
-      (v) => st.running ? `${A.green}${v}${A.reset}` : `${A.gray}${v}${A.reset}`,
-    );
+    addRow('Name', sel.name || sel.slug);
+    addRow('Slug', sel.slug);
 
-    if (st.running) {
+    if (isMcpServer) {
+      // ── mcp-server kind detail ──────────────────────────────────────────
+      const templateId   = sel.definition?.template?.id ?? '—';
+      const templateName = sel.definition?.template?.name ?? templateId;
+      const credKeys: string[] = (sel as any).credentialKeys ?? [];
+
+      addRow('Kind',     'mcp-server');
+      addRow('Template', clip(templateName, rightW - 14));
+      addRow('Transport', 'stdio');
+      addRow('Status',   'stopped (use c to copy config)', (v) => `${A.gray}${v}${A.reset}`);
+      if (credKeys.length > 0) {
+        addRow('Credentials', `${credKeys.length} stored`);
+      } else {
+        addRow('Credentials', 'none stored');
+      }
       blank();
-      const mcpUrl     = `http://127.0.0.1:${st.port}/mcp`;
-      const urlLine    = clip(`URL  ${mcpUrl}`, rightW - 2);
-      rightRaw.push(` ${pad(urlLine, rightW - 2)}`);
-      rightColored.push(` ${A.dim}URL  ${A.reset}${A.cyan}${clip(mcpUrl, rightW - 7)}${A.reset}`);
+      const hintLine = pad(` ${B.dot} c copy stdio config · x update secrets · s—n/a`, rightW);
+      rightRaw.push(hintLine);
+      rightColored.push(
+        ` ${A.dim}${B.dot} Press ${A.reset}${A.cyan}c${A.reset}${A.dim} copy config` +
+        ` · ${A.reset}${A.cyan}x${A.reset}${A.dim} secrets` +
+        ` · s—n/a${A.reset}` +
+        ' '.repeat(Math.max(0, rightW - 46)),
+      );
+    } else {
+      // ── docs-rag kind detail (existing) ────────────────────────────────
+      addRow((sel.definition?.sources.length ?? 1) > 1 ? 'Sources' : 'Source', (sel.definition?.sources.length ?? 1) > 1 ? getServerSourceLabel(sel) : (sel.sourceUrl || '—'));
+      addRow('Chunks',  sel.chunkCount.toLocaleString());
+      addRow('Index',   sel.embeddingModel === 'fuse' ? 'Fuse.js' : `Hybrid (${sel.embeddingModel})`);
+      if (sel.definition?.template) addRow('Template', sel.definition.template.name);
+      addRow('Fresh',   freshnessLabel(sel.lastUpdatedAt));
+      addRow(
+        'Status',
+        st.running ? `running on :${st.port || '?'}` : 'stopped',
+        (v) => st.running ? `${A.green}${v}${A.reset}` : `${A.gray}${v}${A.reset}`,
+      );
 
-      // Show masked auth key
-      let authKeyStr = '—';
-      try {
-        // We have the metadata in sel, but authKey lives there
-        authKeyStr = maskKey((sel as any).authKey || '');
-      } catch {}
-      addRow('Auth', `Bearer ${authKeyStr}`);
+      if (st.running) {
+        blank();
+        const mcpUrl  = `http://127.0.0.1:${st.port}/mcp`;
+        const urlLine = clip(`URL  ${mcpUrl}`, rightW - 2);
+        rightRaw.push(` ${pad(urlLine, rightW - 2)}`);
+        rightColored.push(` ${A.dim}URL  ${A.reset}${A.cyan}${clip(mcpUrl, rightW - 7)}${A.reset}`);
+
+        let authKeyStr = '—';
+        try { authKeyStr = maskKey((sel as any).authKey || ''); } catch {}
+        addRow('Auth', `Bearer ${authKeyStr}`);
+      }
+
+      blank();
+      const hintLine = pad(` ${B.dot} Press c to copy MCP config to clipboard`, rightW);
+      rightRaw.push(hintLine);
+      rightColored.push(` ${A.dim}${B.dot} Press ${A.reset}${A.cyan}c${A.reset}${A.dim} to copy MCP config to clipboard${A.reset}` + ' '.repeat(Math.max(0, rightW - 42)));
     }
-
-    blank();
-    // Keyboard hint for quick copy
-    const hintLine = pad(` ${B.dot} Press c to copy MCP config to clipboard`, rightW);
-    rightRaw.push(hintLine);
-    rightColored.push(` ${A.dim}${B.dot} Press ${A.reset}${A.cyan}c${A.reset}${A.dim} to copy MCP config to clipboard${A.reset}` + ' '.repeat(Math.max(0, rightW - 42)));
   } else if (state.servers.length === 0) {
     const lines = [
       '  Start here:',
       '',
-      `  1. hoolix trial`,
-      `  2. hoolix templates list`,
-      `  3. hoolix create "My Docs" --url https://.../llms.txt --yes`,
-      `  4. hoolix create "Stack" --source docs:https://... --source github:owner/repo`,
-      `  5. hoolix verify my-docs`,
-      `  6. hoolix connect my-docs --client cursor`,
+      `  1. hoolix trial                            (docs-rag demo)`,
+      `  2. hoolix templates list                   (browse all)`,
+      `  3. hoolix create "My Files" --template filesystem --yes`,
+      `  4. hoolix create "Docs" --url https://.../llms.txt --yes`,
+      `  5. hoolix connect my-files --client claude`,
+      `  6. hoolix client status`,
       '',
-      `  ${B.dot} Press t for a trial server or n for a create command.`,
+      `  ${B.dot} Press t for templates or n for a create command.`,
     ];
     for (const l of lines) {
       rightRaw.push(pad(l, rightW));
@@ -339,7 +365,7 @@ function buildFrame(state: TUIState): string {
   // ── Key help bar ──────────────────────────────────────────────────────────
   out.push(`${B.ml}${B.h.repeat(innerW)}${B.mr}`);
 
-  const keyHelp = '↑↓/1-9 select · s start/stop · v verify · c connect · x reindex · n new · t templates/trial · r refresh · q quit';
+  const keyHelp = '↑↓/1-9 select · s start/stop · v verify · c connect · x reindex/secrets · n new · t templates · r refresh · q quit';
   const helpLine = pad(` ${keyHelp}`, innerW);
   out.push(`${B.v}${A.dim}${helpLine}${A.reset}${B.v}`);
 
@@ -444,6 +470,12 @@ async function handleKey(key: string, state: TUIState): Promise<void> {
   if (!slug) return;
 
   if (key.toLowerCase() === 's') {
+    // mcp-server kind: client spawns the process — no Hoolix host
+    if ((servers[state.selectedIndex] as any)?.serverKind === 'mcp-server') {
+      setAction(state, `${slug} uses stdio transport — press c to copy client config`);
+      setTimeout(() => { setAction(state, null); render(state); }, 3000);
+      return;
+    }
     const st = statuses[slug] || { running: false };
     if (st.running) {
       setAction(state, `Stopping ${slug}…`);
@@ -472,6 +504,18 @@ async function handleKey(key: string, state: TUIState): Promise<void> {
   }
 
   if (key.toLowerCase() === 'v') {
+    // mcp-server kind: quick credential count check instead of RAG verify
+    if ((servers[state.selectedIndex] as any)?.serverKind === 'mcp-server') {
+      try {
+        const creds = await loadCredentials(slug);
+        const count = Object.keys(creds).length;
+        setAction(state, `${slug}: mcp-server — ${count} credential(s) stored. Run: hoolix verify ${slug}`);
+      } catch (e: any) {
+        setAction(state, `${slug}: mcp-server verify — ${e?.message || e}`, true);
+      }
+      setTimeout(() => { setAction(state, null); render(state); }, 3500);
+      return;
+    }
     setAction(state, `Verifying ${slug}…`);
     render(state);
     try {
@@ -492,22 +536,46 @@ async function handleKey(key: string, state: TUIState): Promise<void> {
   if (key.toLowerCase() === 'c') {
     try {
       const meta = await getServerMetadata(slug);
-      const st   = statuses[slug] || {};
-      const port = (st as any).port || 3456;
-      const payload = {
-        mcpServers: {
-          [slug]: {
-            type:    'streamable-http',
-            url:     `http://127.0.0.1:${port}/mcp`,
-            headers: { Authorization: `Bearer ${meta.authKey}` },
+
+      if ((meta as any).serverKind === 'mcp-server') {
+        // Build stdio config: load credentials + interpolate run config
+        const templateId = meta.definition?.template?.id;
+        const template   = templateId ? await getTemplate(templateId).catch(() => null) : null;
+        const credentials   = await loadCredentials(slug);
+        const templateInputs: Record<string, string> = (meta.definition?.template?.inputs ?? {}) as Record<string, string>;
+        const substitutions = { ...templateInputs, ...credentials };
+        const runConfig  = template?.server ? interpolateRunConfig(template.server, substitutions) : null;
+        const entry = runConfig
+          ? {
+              command: runConfig.command,
+              args:    runConfig.args,
+              ...(Object.keys(runConfig.env).length > 0 ? { env: runConfig.env } : {}),
+            }
+          : { command: 'hoolix', args: ['connect', slug] };
+        const payload = { mcpServers: { [slug]: entry } };
+        const copied = await copyToClipboard(JSON.stringify(payload, null, 2));
+        setAction(state, copied
+          ? `✓ Copied stdio config for ${slug}`
+          : `Run: hoolix connect ${slug} --json`);
+      } else {
+        // docs-rag: existing HTTP streamable flow
+        const st   = statuses[slug] || {};
+        const port = (st as any).port || 3456;
+        const payload = {
+          mcpServers: {
+            [slug]: {
+              type:    'streamable-http',
+              url:     `http://127.0.0.1:${port}/mcp`,
+              headers: { Authorization: `Bearer ${meta.authKey}` },
+            },
           },
-        },
-      };
-      const copied = await copyToClipboard(JSON.stringify(payload, null, 2));
-      const maskedKey = maskKey(meta.authKey);
-      setAction(state, copied
-        ? `✓ Copied MCP config for ${slug} (key: ${maskedKey})`
-        : `MCP config for ${slug} — copy manually from \`hoolix connect ${slug} --json\``);
+        };
+        const copied = await copyToClipboard(JSON.stringify(payload, null, 2));
+        const maskedKey = maskKey(meta.authKey);
+        setAction(state, copied
+          ? `✓ Copied MCP config for ${slug} (key: ${maskedKey})`
+          : `MCP config for ${slug} — copy manually from \`hoolix connect ${slug} --json\``);
+      }
     } catch (e: any) {
       setAction(state, `Failed to build config: ${e?.message || e}`, true);
     }
@@ -516,6 +584,14 @@ async function handleKey(key: string, state: TUIState): Promise<void> {
   }
 
   if (key.toLowerCase() === 'x') {
+    // mcp-server kind: redirect to secrets instead of reindex
+    if ((servers[state.selectedIndex] as any)?.serverKind === 'mcp-server') {
+      const cmd = `hoolix secrets set ${slug} <key> <value>`;
+      await copyToClipboard(`hoolix secrets list ${slug}`);
+      setAction(state, `mcp-server — to rotate credentials: ${cmd}`);
+      setTimeout(() => { setAction(state, null); render(state); }, 4000);
+      return;
+    }
     setAction(state, `Re-indexing ${slug}… (this may take a while)`);
     render(state);
     try {
