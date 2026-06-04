@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Modular CLI architecture** — Broke the monolithic `src/index.ts` (2,149 lines) into a thin dispatcher (~100 lines) plus one focused module per command under `src/commands/`. Adding a new command now means one new file and one new `switch` case.
+  - `src/commands/` — 17 command modules: `list`, `create`, `delete`, `reindex`, `verify`, `info`, `start`, `stop`, `connect`, `rotate`, `audit`, `export`, `import`, `update`, `uninstall`, `doctor`, `gui`.
+  - `src/ui/format.ts` — Shared chalk palette, all `print*` helpers, `truncate`, `maskSecret`, `getFreshness`, and formatting types.
+  - `src/ui/help.ts` — `printHelp()` in its own module.
+  - `src/lib/auth.ts` — `generateAuthKey()` extracted and re-exported from `src/index.ts` for backward compatibility.
+  - `src/lib/embedding.ts` — `resolveEmbeddingModel()` deduplicates embedding resolution logic previously copied between `create` and `reindex`.
+- **Polished interactive TUI** — Completely rewrote `src/tui/index.tsx`:
+  - Full-terminal box-drawing layout (`┌ ─ ┐ │ ├ ┬ ┤ └ ┘`) with outer border and column divider.
+  - **Two-column layout**: server list (left) with live `●`/`○` status, port, and highlighted selection; detail panel (right) with name, source, chunks, index type, freshness, masked auth key, and MCP URL.
+  - **Log tail panel**: last 5 lines of `host.log` for the selected server, refreshed every 2 s.
+  - **Persistent status bar**: key-help line plus a dedicated action-feedback line with auto-clear after 2–3 s.
+  - Resize-aware — re-renders on terminal resize.
+  - All actions (`s` start/stop, `v` verify, `c` copy MCP config, `x` reindex, `n` copy create command) show inline feedback while running.
+  - Empty-state welcome screen with step-by-step instructions for first-time users.
+  - Frame-buffer rendering — entire screen written in one `stdout.write` call, eliminating flicker.
+
+### Changed
+
+- `src/index.ts` is now a ~100-line dispatcher; all command logic lives in dedicated modules — each command is independently readable, testable, and extendable.
+- Embedding model resolution (`--embedding-model` / `--hybrid` / `config.preferredEmbedding` / `fuse` fallback) is now a single shared `resolveEmbeddingModel()` call instead of copy-pasted logic in `create` and `reindex`.
+- TUI replaced console-clear + sequential `console.log` calls with a frame-buffer renderer (`buildFrame`) that writes the entire screen in a single `process.stdout.write` call, reducing flicker.
+
 ## [0.0.1-beta.4] - 2026-06-03
 
 ### Added
