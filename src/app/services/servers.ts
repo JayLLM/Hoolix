@@ -1,8 +1,10 @@
 import fs from 'fs-extra';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import {
   deleteServer as deleteServerFromRegistry,
   getServerMetadata,
+  getServerDefinition,
   listServers as listServersFromRegistry,
   registerServer,
   slugify,
@@ -12,6 +14,7 @@ import {
 } from '../../core/registry.js';
 import { getServerDir } from '../../core/paths.js';
 import { ingestDocumentation } from '../../ingestion/pipeline.js';
+import type { IngestedChunk, IngestionResult } from '../../ingestion/types.js';
 import { generateAuthKey } from '../../lib/auth.js';
 import { serverManager } from '../../process/manager.js';
 import { createRAGForServer } from '../../rag/store.js';
@@ -32,6 +35,15 @@ import type {
   VerifyReport,
   VerifySample,
 } from '../contracts.js';
+import {
+  createLegacyServerDefinition,
+  sourceLabel,
+  sourceListLabel,
+  sourceHeaders,
+  sourceToIngestionUrl,
+  summarizeDefinition,
+} from '../../sources/registry.js';
+import { ServerDefinitionSchema, type ServerDefinition } from '../../sources/types.js';
 
 const DEFAULT_MAX_CHUNKS = 6000;
 const DEFAULT_MAX_PAGES = 80;
@@ -49,7 +61,7 @@ function likelyTruncated(meta: ServerMetadata): boolean {
 
 async function indexChunksForServer(
   slug: string,
-  chunks: CreateServerResult['ingestion']['chunks'],
+  chunks: IngestedChunk[],
   embeddingModel: EmbeddingModel,
   onProgress?: AppProgressHandler,
 ): Promise<string | undefined> {
@@ -75,15 +87,125 @@ async function indexChunksForServer(
   }
 }
 
+function resolveCreateDefinition(input: CreateServerInput): ServerDefinition {
+  if (input.definition) return ServerDefinitionSchema.parse(input.definition);
+  if (input.sources && input.sources.length > 0) {
+    return ServerDefinitionSchema.parse({ version: 1, sources: input.sources });
+  }
+  if (input.url) return createLegacyServerDefinition(input.url, 'generic');
+  throw new Error('Missing source. Next: pass --url <url> or one or more --source type:value entries.');
+}
+
+function makeSourceId(index: number): string {
+  return `source_${index + 1}`;
+}
+
+function combineIngestionResults(definition: ServerDefinition, results: IngestionResult[], maxChunks: number, maxPages: number): IngestionResult {
+  const chunks: IngestedChunk[] = [];
+  let order = 0;
+  let truncated = false;
+
+  for (let sourceIndex = 0; sourceIndex < results.length; sourceIndex++) {
+    const source = definition.sources[sourceIndex];
+    const result = results[sourceIndex];
+    const id = makeSourceId(sourceIndex);
+    const label = sourceLabel(source);
+
+    for (const chunk of result.chunks) {
+      if (chunks.length >= maxChunks) {
+        truncated = true;
+        break;
+      }
+      chunks.push({
+        ...chunk,
+        id: `${id}_${chunk.id}`,
+        metadata: {
+          ...chunk.metadata,
+          order: order++,
+          sourceId: id,
+          sourceType: source.type,
+          sourceLabel: label,
+        },
+      });
+    }
+    if (truncated) break;
+  }
+
+  const primary = results[0];
+  const totalChars = chunks.reduce((sum, chunk) => sum + chunk.content.length, 0);
+  const stats = {
+    totalChunks: chunks.length,
+    totalChars,
+    pagesProcessed: results.reduce((sum, result) => sum + result.stats.pagesProcessed, 0),
+    pagesDiscovered: results.reduce((sum, result) => sum + (result.stats.pagesDiscovered ?? result.stats.pagesProcessed), 0),
+    durationMs: results.reduce((sum, result) => sum + result.stats.durationMs, 0),
+    truncated: truncated || results.some((result) => result.stats.truncated),
+    maxChunks,
+    maxPages,
+  };
+
+  return {
+    sourceUrl: primary.sourceUrl,
+    sourceType: primary.sourceType,
+    title: primary.title,
+    chunks,
+    stats,
+    rawMarkdown: results.map((result) => result.rawMarkdown || '').filter(Boolean).join('\n\n---\n\n').slice(0, 50_000),
+  };
+}
+
+async function ingestDefinition(
+  definition: ServerDefinition,
+  options: {
+    maxChunks: number;
+    maxPages: number;
+    onProgress?: AppProgressHandler;
+  },
+): Promise<IngestionResult> {
+  if (definition.sources.length === 1) {
+    const source = definition.sources[0];
+    return ingestDocumentation(sourceToIngestionUrl(definition.sources[0]), {
+      maxChunks: options.maxChunks,
+      maxPages: options.maxPages,
+      headers: sourceHeaders(source),
+      onProgress: (p) => emitProgress(options.onProgress, fromIngestionProgress(p)),
+    });
+  }
+
+  const results: IngestionResult[] = [];
+  for (let i = 0; i < definition.sources.length; i++) {
+    const source = definition.sources[i];
+    emitProgress(options.onProgress, {
+      stage: 'fetch',
+      message: `Ingesting source ${i + 1}/${definition.sources.length}: ${sourceLabel(source)}`,
+      current: i + 1,
+      total: definition.sources.length,
+    });
+    const result = await ingestDocumentation(sourceToIngestionUrl(source), {
+      maxChunks: options.maxChunks,
+      maxPages: options.maxPages,
+      headers: sourceHeaders(source),
+      onProgress: (p) => emitProgress(options.onProgress, {
+        ...fromIngestionProgress(p),
+        message: `[${sourceLabel(source)}] ${p.message}`,
+      }),
+    });
+    results.push(result);
+  }
+
+  return combineIngestionResults(definition, results, options.maxChunks, options.maxPages);
+}
+
 export async function createServer(input: CreateServerInput): Promise<CreateServerResult> {
   const slug = slugify(input.name);
   const maxChunks = input.maxChunks ?? DEFAULT_MAX_CHUNKS;
   const maxPages = input.maxPages ?? DEFAULT_MAX_PAGES;
+  const definition = resolveCreateDefinition(input);
 
-  const ingestion = await ingestDocumentation(input.url, {
+  const ingestion = await ingestDefinition(definition, {
     maxChunks,
     maxPages,
-    onProgress: (p) => emitProgress(input.onProgress, fromIngestionProgress(p)),
+    onProgress: input.onProgress,
   });
 
   const indexWarning = await indexChunksForServer(
@@ -103,9 +225,11 @@ export async function createServer(input: CreateServerInput): Promise<CreateServ
     embeddingModel: input.embeddingModel,
     chunkCount: ingestion.stats.totalChunks,
     ingestionStats: ingestion.stats,
+    sourceFingerprint: fingerprintChunks(ingestion.chunks),
     vectorIndexed: isHybridModel(input.embeddingModel),
     authKey: generateAuthKey(),
     desiredState: 'stopped',
+    definition,
   });
 
   emitProgress(input.onProgress, { stage: 'done', message: 'Server created successfully' });
@@ -119,18 +243,36 @@ export async function createServer(input: CreateServerInput): Promise<CreateServ
 
 export async function reindexServer(input: ReindexServerInput): Promise<ReindexServerResult> {
   const current = await getServerMetadata(input.slug);
-  if (!current.sourceUrl) {
+  const definition = getServerDefinition(current);
+  if (!definition.sources.length && !current.sourceUrl) {
     throw new Error('This server has no recorded sourceUrl and cannot be reindexed.');
   }
 
   const maxChunks = input.maxChunks ?? DEFAULT_MAX_CHUNKS;
   const maxPages = input.maxPages ?? DEFAULT_MAX_PAGES;
 
-  const ingestion = await ingestDocumentation(current.sourceUrl, {
+  const ingestion = await ingestDefinition(definition, {
     maxChunks,
     maxPages,
-    onProgress: (p) => emitProgress(input.onProgress, fromIngestionProgress(p)),
+    onProgress: input.onProgress,
   });
+
+  const nextFingerprint = fingerprintChunks(ingestion.chunks);
+  if (input.incremental !== false && !input.force && current.sourceFingerprint && current.sourceFingerprint === nextFingerprint) {
+    const meta = await updateServerMetadata(input.slug, {
+      lastReindexAt: new Date().toISOString(),
+      reindexSchedule: nextSchedule(current.reindexSchedule),
+      definition,
+    });
+    emitProgress(input.onProgress, { stage: 'done', message: 'No source changes detected; index is already current.' });
+    return {
+      meta,
+      ingestion,
+      indexLabel: indexLabel(input.embeddingModel),
+      skipped: true,
+      reason: 'unchanged',
+    };
+  }
 
   const indexWarning = await indexChunksForServer(
     input.slug,
@@ -143,8 +285,12 @@ export async function reindexServer(input: ReindexServerInput): Promise<ReindexS
     chunkCount: ingestion.stats.totalChunks,
     sourceType: ingestion.sourceType,
     ingestionStats: ingestion.stats,
+    sourceFingerprint: nextFingerprint,
+    lastReindexAt: new Date().toISOString(),
+    reindexSchedule: nextSchedule(current.reindexSchedule),
     embeddingModel: input.embeddingModel,
     vectorIndexed: isHybridModel(input.embeddingModel),
+    definition,
   });
 
   emitProgress(input.onProgress, { stage: 'done', message: 'Server reindexed successfully' });
@@ -154,6 +300,25 @@ export async function reindexServer(input: ReindexServerInput): Promise<ReindexS
     indexLabel: indexLabel(input.embeddingModel),
     indexWarning,
   };
+}
+
+export async function updateReindexSchedule(slug: string, intervalHours: number | null): Promise<ServerMetadata> {
+  if (intervalHours === null) {
+    return updateServerMetadata(slug, { reindexSchedule: { enabled: false, intervalHours: 24 } });
+  }
+  const nextRunAt = new Date(Date.now() + intervalHours * 60 * 60 * 1000).toISOString();
+  return updateServerMetadata(slug, {
+    reindexSchedule: { enabled: true, intervalHours, nextRunAt },
+  });
+}
+
+export async function listDueReindexServers(now = new Date()): Promise<ServerMetadata[]> {
+  const servers = await listServersFromRegistry();
+  return servers.filter((server) => {
+    const schedule = server.reindexSchedule;
+    if (!schedule?.enabled || !schedule.nextRunAt) return false;
+    return Date.parse(schedule.nextRunAt) <= now.getTime();
+  });
 }
 
 export async function deleteRegisteredServer(slug: string): Promise<DeleteServerResult> {
@@ -193,6 +358,8 @@ export async function getServerLogTail(slug: string, maxChars = 8000): Promise<s
 
 export async function verifyServer(slug: string, queries = ['overview', 'install', 'getting started', 'api', 'configuration']): Promise<VerifyReport> {
   const meta = await getServerMetadata(slug);
+  const definition = getServerDefinition(meta);
+  const summary = summarizeDefinition(definition);
   const validation = await validateServerState(slug);
   const rag = await createRAGForServer(slug, (meta.embeddingModel as EmbeddingModel) || 'fuse');
   const diagnostics = await rag.getDiagnostics?.() ?? null;
@@ -258,5 +425,32 @@ export async function verifyServer(slug: string, queries = ['overview', 'install
     diagnostics,
     embeddingModel: meta.embeddingModel as EmbeddingModel,
     freshnessUpdatedAt: meta.lastUpdatedAt,
+    definition,
+    sourceCount: summary.count,
+    sourceLabels: summary.labels,
+  };
+}
+
+export function getServerSourceLabel(meta: ServerMetadata): string {
+  return sourceListLabel(getServerDefinition(meta));
+}
+
+function fingerprintChunks(chunks: IngestedChunk[]): string {
+  const hash = createHash('sha256');
+  for (const chunk of chunks) {
+    hash.update(chunk.metadata.url);
+    hash.update('\0');
+    hash.update(chunk.content);
+    hash.update('\0');
+  }
+  return hash.digest('hex');
+}
+
+function nextSchedule(schedule: ServerMetadata['reindexSchedule']): ServerMetadata['reindexSchedule'] {
+  if (!schedule?.enabled) return schedule;
+  return {
+    enabled: true,
+    intervalHours: schedule.intervalHours,
+    nextRunAt: new Date(Date.now() + schedule.intervalHours * 60 * 60 * 1000).toISOString(),
   };
 }

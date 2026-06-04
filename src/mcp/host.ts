@@ -14,6 +14,7 @@ import { logger } from '../core/logger.js';
 import fs from 'fs-extra';
 import { getServerRuntimePath, getServerDataDir } from '../core/paths.js';
 import path from 'node:path';
+import { getServerMetadata } from '../core/registry.js';
 
 export interface HostOptions {
   slug: string;
@@ -58,6 +59,26 @@ function toolErrorResponse(message: string) {
   };
 }
 
+function formatResultSource(metadata: { url: string; sourceLabel?: string; sourceType?: string }): string {
+  const prefix = metadata.sourceLabel ? `Source (${metadata.sourceLabel})` : 'Source';
+  const type = metadata.sourceType ? ` [${metadata.sourceType}]` : '';
+  return `${prefix}${type}: ${metadata.url}`;
+}
+
+function tokenBudget(args: any, fallbackTokens: number): number {
+  const maxTokens = Number(args?.maxTokens || 0);
+  const contextWindowTokens = Number(args?.contextWindowTokens || 0);
+  const fromContext = contextWindowTokens > 0 ? Math.floor(contextWindowTokens * 0.25) : fallbackTokens;
+  const budget = maxTokens > 0 ? Math.min(maxTokens, fromContext) : fromContext;
+  return Math.max(500, Math.min(12000, budget));
+}
+
+function truncateToTokenBudget(text: string, budgetTokens: number): string {
+  const maxChars = budgetTokens * 4;
+  if (text.length <= maxChars) return text;
+  return text.slice(0, maxChars) + `\n... (truncated to ~${budgetTokens} tokens; pass maxTokens or use read_documentation_page for more)`;
+}
+
 async function parseArgs(): Promise<HostOptions> {
   const args = process.argv.slice(2);
   const get = (name: string) => {
@@ -91,21 +112,34 @@ async function startHostedServer(opts: HostOptions) {
 
   // Load RAG (Fuse default; hybrid if server was indexed that way)
   const rag = await createRAGForServer(slug);
+  const meta = await getServerMetadata(slug).catch(() => null);
 
   // In-memory rate limiter (per-server; token-bucket style with fixed window for simplicity).
   // 120 req / 60s default. Configurable via env for advanced use (MCP_RATE_LIMIT, MCP_RATE_WINDOW_SEC).
   // Returns true if allowed; callers handle 429 + Retry-After.
   const RATE_LIMIT = Math.max(1, parseInt(process.env.MCP_RATE_LIMIT || '120', 10));
   const RATE_WINDOW_MS = Math.max(1000, (parseInt(process.env.MCP_RATE_WINDOW_SEC || '60', 10)) * 1000);
+  const rateStatePath = path.join(getServerDataDir(slug), 'rate-state.json');
   let reqCount = 0;
   let windowStart = Date.now();
-  function checkRateLimit(): boolean {
+  try {
+    const state = await fs.readJson(rateStatePath);
+    if (typeof state.windowStart === 'number' && typeof state.reqCount === 'number') {
+      reqCount = state.reqCount;
+      windowStart = state.windowStart;
+    }
+  } catch {}
+  async function saveRateState(): Promise<void> {
+    await fs.writeJson(rateStatePath, { windowStart, reqCount, limit: RATE_LIMIT, windowMs: RATE_WINDOW_MS }).catch(() => {});
+  }
+  async function checkRateLimit(): Promise<boolean> {
     const now = Date.now();
     if (now - windowStart > RATE_WINDOW_MS) {
       reqCount = 0;
       windowStart = now;
     }
     reqCount += 1;
+    await saveRateState();
     return reqCount <= RATE_LIMIT;
   }
 
@@ -143,6 +177,8 @@ async function startHostedServer(opts: HostOptions) {
         query: z.string().min(2).describe('Natural language or keyword query'),
         limit: z.number().int().min(1).max(20).default(8),
         mode: z.enum(['semantic', 'keyword', 'hybrid']).default('hybrid'),
+        maxTokens: z.number().int().min(500).max(12000).optional().describe('Approximate output token budget for this response'),
+        contextWindowTokens: z.number().int().min(1000).max(1000000).optional().describe('Client context window size; hoolix uses about 25% for search output'),
       }) as any,
     } as any,
     async (args: any) => {
@@ -152,12 +188,9 @@ async function startHostedServer(opts: HostOptions) {
           const results = await rag.search(query, { limit, mode });
           await audit('search_documentation', { query: String(query).slice(0, 120), limit, mode, hits: results.length });
           let formatted = results.map((r, i) => 
-            `[${i + 1}] ${r.metadata.title || r.metadata.url}\n${r.content}\nSource: ${r.metadata.url}\n`
+            `[${i + 1}] ${r.metadata.title || r.metadata.url}\n${r.content}\n${formatResultSource(r.metadata)}\n`
           ).join('\n---\n');
-          const MAX_CHARS = 18000;
-          if (formatted.length > MAX_CHARS) {
-            formatted = formatted.slice(0, MAX_CHARS) + '\n... (truncated for response size; use read_documentation_page or smaller limit for full content)';
-          }
+          formatted = truncateToTokenBudget(formatted, tokenBudget(args, 4500));
 
           return {
             content: [{ type: 'text' as const, text: formatted || 'No relevant documentation found.' }],
@@ -178,6 +211,8 @@ async function startHostedServer(opts: HostOptions) {
       inputSchema: z.object({
         urlOrPath: z.string().describe('URL or path fragment to read'),
         maxChunks: z.number().int().min(1).max(30).default(15),
+        maxTokens: z.number().int().min(500).max(20000).optional().describe('Approximate output token budget for this response'),
+        contextWindowTokens: z.number().int().min(1000).max(1000000).optional().describe('Client context window size; hoolix uses about 35% for page reads'),
       }) as any,
     } as any,
     async (args: any) => {
@@ -190,9 +225,8 @@ async function startHostedServer(opts: HostOptions) {
             return { content: [{ type: 'text' as const, text: `Page not found: ${urlOrPath}` }] };
           }
           await audit('read_documentation_page', { urlOrPath: String(urlOrPath).slice(0, 200), found: true, chunks: page.chunks?.length || 0 });
-          return {
-            content: [{ type: 'text' as const, text: `# ${page.title}\n\nSource: ${page.url}\n\n${page.content}` }],
-          };
+          const text = `# ${page.title}\n\nSource: ${page.url}${meta?.definition?.template ? `\nTemplate: ${meta.definition.template.name}` : ''}\n\n${page.content}`;
+          return { content: [{ type: 'text' as const, text: truncateToTokenBudget(text, tokenBudget(args, 7000)) }] };
         })());
       } catch (e: any) {
         await audit('tool_error', { toolName: 'read_documentation_page', reason: e?.message || String(e) });
@@ -250,7 +284,7 @@ async function startHostedServer(opts: HostOptions) {
         401,
       );
     }
-    if (!checkRateLimit()) {
+    if (!(await checkRateLimit())) {
       await audit('rate_limited', { path: c.req.path, limit: RATE_LIMIT, windowSec: Math.floor(RATE_WINDOW_MS / 1000) });
       // Retry-After for clients (and MCP hosts) — advanced rate limiting surface
       c.header('Retry-After', String(Math.ceil(RATE_WINDOW_MS / 1000)));

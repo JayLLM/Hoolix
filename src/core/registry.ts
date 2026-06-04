@@ -5,6 +5,8 @@ import { getPaths, getServerDir, getServerMetadataPath, getServerDataDir, ensure
 import { logger } from './logger.js';
 import { ServerNotFoundError, ServerAlreadyExistsError } from './errors.js';
 import { SUPPORTED_EMBEDDING_MODELS } from '../rag/models.js';
+import { ServerDefinitionSchema, type ServerDefinition } from '../sources/types.js';
+import { createLegacyServerDefinition } from '../sources/registry.js';
 
 export const ServerMetadataSchema = z.object({
   name: z.string(),
@@ -32,6 +34,14 @@ export const ServerMetadataSchema = z.object({
   lastStartedAt: z.string().datetime().optional(),
   authKey: z.string().min(16), // crypto-generated at create; only returned at start time
   desiredState: z.enum(['running', 'stopped']).default('stopped'),
+  definition: ServerDefinitionSchema.optional(),
+  sourceFingerprint: z.string().optional(),
+  lastReindexAt: z.string().datetime().optional(),
+  reindexSchedule: z.object({
+    enabled: z.boolean().default(false),
+    intervalHours: z.number().int().positive().default(24),
+    nextRunAt: z.string().datetime().optional(),
+  }).optional(),
 });
 
 export type ServerMetadata = z.infer<typeof ServerMetadataSchema>;
@@ -85,7 +95,15 @@ export async function getServerMetadata(slug: string): Promise<ServerMetadata> {
     throw new ServerNotFoundError(slug);
   }
   const raw = await fs.readJson(metaPath);
-  return ServerMetadataSchema.parse(raw);
+  const parsed = ServerMetadataSchema.parse(raw);
+  if (parsed.definition) return parsed;
+
+  const migrated: ServerMetadata = {
+    ...parsed,
+    definition: createLegacyServerDefinition(parsed.sourceUrl, parsed.sourceType),
+  };
+  await fs.writeJson(metaPath, migrated, { spaces: 2 }).catch(() => {});
+  return migrated;
 }
 
 export async function saveServerMetadata(meta: ServerMetadata): Promise<void> {
@@ -146,6 +164,10 @@ export async function updateServerMetadata(slug: string, updates: Partial<Server
   const validated = ServerMetadataSchema.parse(next);
   await saveServerMetadata(validated);
   return validated;
+}
+
+export function getServerDefinition(meta: ServerMetadata): ServerDefinition {
+  return meta.definition || createLegacyServerDefinition(meta.sourceUrl, meta.sourceType);
 }
 
 export function slugify(name: string): string {

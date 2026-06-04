@@ -61,6 +61,7 @@ export async function cmdImport(args: string[], json: boolean): Promise<void> {
     vectorIndexed:    !!bundle.embeddings,
     authKey,
     desiredState:     'stopped',
+    definition:        importedMeta.definition,
   });
 
   const dataDir = getServerDataDir(slug);

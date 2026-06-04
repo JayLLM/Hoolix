@@ -10,6 +10,9 @@ export interface IngestedChunk {
     headings?: string[];
     charCount: number;
     order: number;
+    sourceId?: string;
+    sourceType?: string;
+    sourceLabel?: string;
   };
 }
 
@@ -48,4 +51,5 @@ export interface IngestionOptions {
   chunkOverlap?: number;
   onProgress?: ProgressCallback;
   signal?: AbortSignal;
+  headers?: Record<string, string>;
 }

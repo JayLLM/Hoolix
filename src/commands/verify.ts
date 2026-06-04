@@ -6,6 +6,9 @@ import { isHybridModel } from '../rag/models.js';
 import { verifyServer } from '../app/services/servers.js';
 import { getFreshness, printTitle, printSection, printDetails, truncate, statusText, ui } from '../ui/format.js';
 import type { EmbeddingModel } from '../rag/models.js';
+import { getServerDataDir } from '../core/paths.js';
+import fs from 'fs-extra';
+import path from 'node:path';
 
 export async function cmdVerify(args: string[]): Promise<void> {
   const slug = args[1];
@@ -49,6 +52,16 @@ export async function cmdVerify(args: string[]): Promise<void> {
         tocPreview:  report.tocPreview,
         embeddingModel: report.embeddingModel,
         freshness:   getFreshness(report.freshnessUpdatedAt),
+        sourceCount: report.sourceCount,
+        sourceLabels: report.sourceLabels,
+        template: report.definition.template,
+        reliability: {
+          sourceFingerprint: !!meta.sourceFingerprint,
+          lastReindexAt: meta.lastReindexAt || null,
+          reindexSchedule: meta.reindexSchedule || null,
+          authenticatedSources: report.definition.sources.filter((source: any) => source.headers || source.cookie).length,
+          persistedRateState: await fs.pathExists(path.join(getServerDataDir(slug), 'rate-state.json')),
+        },
       }, null, 2));
       return;
     } catch (e: any) {
@@ -64,7 +77,8 @@ export async function cmdVerify(args: string[]): Promise<void> {
   const v = report.validation;
   printDetails([
     ['Registry chunks', meta.chunkCount.toLocaleString()],
-    ['Source',          truncate(meta.sourceUrl, 92)],
+    [report.sourceCount > 1 ? 'Sources' : 'Source', report.sourceCount > 1 ? report.sourceLabels.join(', ') : truncate(meta.sourceUrl, 92)],
+    ['Template',        report.definition.template ? `${report.definition.template.name} (${report.definition.template.id})` : undefined],
     ['Freshness',       getFreshness(meta.lastUpdatedAt).message],
     ['Validation',      statusText(v.valid, 'ok', 'issues')],
   ]);
@@ -100,6 +114,16 @@ export async function cmdVerify(args: string[]): Promise<void> {
   if (diagnostics && diagnostics.sourceCoveragePercent < 100) {
     console.log(`    ${ui.warning('!')} Some chunks are missing source URLs. Next: reindex and inspect ingestion output.`);
   }
+
+  console.log('');
+  printSection('Reliability');
+  printDetails([
+    ['Incremental fingerprint', meta.sourceFingerprint ? 'present' : 'missing (next reindex will record it)'],
+    ['Last reindex', meta.lastReindexAt ? new Date(meta.lastReindexAt).toLocaleString() : 'never recorded'],
+    ['Schedule', meta.reindexSchedule?.enabled ? `every ${meta.reindexSchedule.intervalHours}h, next ${meta.reindexSchedule.nextRunAt || 'unknown'}` : 'off'],
+    ['Authenticated sources', report.definition.sources.filter((source: any) => source.headers || source.cookie).length],
+    ['Persisted rate state', await fs.pathExists(path.join(getServerDataDir(slug), 'rate-state.json')) ? 'present' : 'not created yet'],
+  ]);
 
   console.log('');
   printSection('Sample searches (relevance + grounding)');

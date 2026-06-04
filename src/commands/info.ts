@@ -1,5 +1,5 @@
 import { validateServerState } from '../core/registry.js';
-import { getServerInfo } from '../app/services/servers.js';
+import { getServerInfo, getServerSourceLabel } from '../app/services/servers.js';
 import { logger } from '../core/logger.js';
 import { isHybridModel } from '../rag/models.js';
 import {
@@ -32,10 +32,11 @@ export async function cmdInfo(args: string[], json: boolean): Promise<void> {
 
   printTitle('Server Info', `${meta.name} (${meta.slug})`);
   printDetails([
-    ['Source',    truncate(meta.sourceUrl, 92)],
+    [(meta.definition?.sources.length ?? 1) > 1 ? 'Sources' : 'Source', truncate((meta.definition?.sources.length ?? 1) > 1 ? getServerSourceLabel(meta) : meta.sourceUrl, 92)],
     ['Type',      meta.sourceType],
     ['Chunks',    meta.chunkCount.toLocaleString()],
     ['Index',     isHybridModel(meta.embeddingModel as any) ? `Hybrid (${meta.embeddingModel})` : 'Fuse.js'],
+    ['Template',  meta.definition?.template ? `${meta.definition.template.name} (${meta.definition.template.id})` : undefined],
     ['Freshness', getFreshness(meta.lastUpdatedAt).message],
     ['Status',    `${status.running ? ui.success('running') : ui.muted('stopped')}${status.port ? ` on :${status.port}` : ''}`],
     ['Created',   new Date(meta.createdAt).toLocaleString()],

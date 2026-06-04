@@ -29,7 +29,7 @@ export async function ingestDocumentation(
 
   // Primary fetch (prefers llms-full.txt sibling when input is llms.txt)
   emit({ stage: 'fetch', message: `Fetching ${url}...` });
-  let fetched = await fetchDocumentation(url);
+  let fetched = await fetchDocumentation(url, { headers: options.headers || {} });
 
   emit({ stage: 'fetch', message: `Fetched ${fetched.content.length.toLocaleString()} chars` });
 
@@ -69,7 +69,7 @@ export async function ingestDocumentation(
           current: completed,
           total,
         });
-      });
+      }, options.headers || {});
 
       if (morePages.length > 0) {
         pagesToProcess = [fetched, ...morePages];

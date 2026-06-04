@@ -27,7 +27,7 @@ import { serverManager, type ServerStatus } from '../process/manager.js';
 import { getServerDir } from '../core/paths.js';
 import { logger } from '../core/logger.js';
 import { VERSION } from '../core/version.js';
-import { reindexServer, verifyServer } from '../app/services/servers.js';
+import { getServerSourceLabel, reindexServer, verifyServer } from '../app/services/servers.js';
 
 // ── ANSI helpers ────────────────────────────────────────────────────────────
 
@@ -252,9 +252,10 @@ function buildFrame(state: TUIState): string {
 
     addRow('Name',    sel.name || sel.slug);
     addRow('Slug',    sel.slug);
-    addRow('Source',  sel.sourceUrl || '—');
+    addRow((sel.definition?.sources.length ?? 1) > 1 ? 'Sources' : 'Source', (sel.definition?.sources.length ?? 1) > 1 ? getServerSourceLabel(sel) : (sel.sourceUrl || '—'));
     addRow('Chunks',  sel.chunkCount.toLocaleString());
     addRow('Index',   sel.embeddingModel === 'fuse' ? 'Fuse.js' : `Hybrid (${sel.embeddingModel})`);
+    if (sel.definition?.template) addRow('Template', sel.definition.template.name);
     addRow('Fresh',   freshnessLabel(sel.lastUpdatedAt));
     addRow(
       'Status',
@@ -288,9 +289,10 @@ function buildFrame(state: TUIState): string {
       '  Get started:',
       '',
       `  1. hoolix create "My Docs" --url https://.../llms.txt --yes`,
-      `  2. hoolix verify my-docs`,
-      `  3. hoolix start my-docs`,
-      `  4. hoolix connect my-docs --client cursor`,
+      `  2. hoolix templates list`,
+      `  3. hoolix verify my-docs`,
+      `  4. hoolix start my-docs`,
+      `  5. hoolix connect my-docs --client cursor`,
       '',
       `  ${B.dot} Press n to copy the create command.`,
     ];
@@ -336,7 +338,7 @@ function buildFrame(state: TUIState): string {
   // ── Key help bar ──────────────────────────────────────────────────────────
   out.push(`${B.ml}${B.h.repeat(innerW)}${B.mr}`);
 
-  const keyHelp = '↑↓/1-9 select · s start/stop · v verify · c connect · x reindex · n new · r refresh · q quit';
+  const keyHelp = '↑↓/1-9 select · s start/stop · v verify · c connect · x reindex · n new · t templates · r refresh · q quit';
   const helpLine = pad(` ${keyHelp}`, innerW);
   out.push(`${B.v}${A.dim}${helpLine}${A.reset}${B.v}`);
 
@@ -423,6 +425,14 @@ async function handleKey(key: string, state: TUIState): Promise<void> {
 
   if (key.toLowerCase() === 'n') {
     const cmd    = 'hoolix create "My Docs" --url https://example.com/llms.txt --yes';
+    const copied = await copyToClipboard(cmd);
+    setAction(state, copied ? `Copied: ${cmd}` : `Run: ${cmd}`);
+    setTimeout(() => { setAction(state, null); render(state); }, 3000);
+    return;
+  }
+
+  if (key.toLowerCase() === 't') {
+    const cmd    = 'hoolix templates list';
     const copied = await copyToClipboard(cmd);
     setAction(state, copied ? `Copied: ${cmd}` : `Run: ${cmd}`);
     setTimeout(() => { setAction(state, null); render(state); }, 3000);

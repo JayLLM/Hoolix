@@ -23,6 +23,7 @@ import path from 'node:path';
 import { createRAGForServer } from '../rag/store.js';
 import { logger } from '../core/logger.js';
 import { getServerDataDir } from '../core/paths.js';
+import { getServerMetadata } from '../core/registry.js';
 
 const DEFAULT_TOOL_TIMEOUT_MS = 15_000;
 
@@ -51,10 +52,31 @@ function toolErrorResponse(message: string) {
   return { content: [{ type: 'text' as const, text: message }] };
 }
 
+function formatResultSource(metadata: { url: string; sourceLabel?: string; sourceType?: string }): string {
+  const prefix = metadata.sourceLabel ? `Source (${metadata.sourceLabel})` : 'Source';
+  const type = metadata.sourceType ? ` [${metadata.sourceType}]` : '';
+  return `${prefix}${type}: ${metadata.url}`;
+}
+
+function tokenBudget(args: any, fallbackTokens: number): number {
+  const maxTokens = Number(args?.maxTokens || 0);
+  const contextWindowTokens = Number(args?.contextWindowTokens || 0);
+  const fromContext = contextWindowTokens > 0 ? Math.floor(contextWindowTokens * 0.25) : fallbackTokens;
+  const budget = maxTokens > 0 ? Math.min(maxTokens, fromContext) : fromContext;
+  return Math.max(500, Math.min(12000, budget));
+}
+
+function truncateToTokenBudget(text: string, budgetTokens: number): string {
+  const maxChars = budgetTokens * 4;
+  if (text.length <= maxChars) return text;
+  return text.slice(0, maxChars) + `\n... (truncated to ~${budgetTokens} tokens; pass maxTokens or use read_documentation_page for more)`;
+}
+
 export async function startStdioServer(slug: string): Promise<void> {
   logger.info(`Starting stdio MCP server for "${slug}"`);
 
   const rag = await createRAGForServer(slug);
+  const meta = await getServerMetadata(slug).catch(() => null);
 
   const auditPath = path.join(getServerDataDir(slug), 'audit.log');
   const MAX_AUDIT_LINES = 5000;
@@ -85,6 +107,8 @@ export async function startStdioServer(slug: string): Promise<void> {
         query: z.string().min(2).describe('Natural language or keyword query'),
         limit: z.number().int().min(1).max(20).default(8),
         mode:  z.enum(['semantic', 'keyword', 'hybrid']).default('hybrid'),
+        maxTokens: z.number().int().min(500).max(12000).optional(),
+        contextWindowTokens: z.number().int().min(1000).max(1000000).optional(),
       }) as any,
     } as any,
     async (args: any) => {
@@ -94,12 +118,9 @@ export async function startStdioServer(slug: string): Promise<void> {
           const results = await rag.search(query, { limit, mode });
           await audit('search_documentation', { query: String(query).slice(0, 120), limit, mode, hits: results.length });
           let formatted = results
-            .map((r, i) => `[${i + 1}] ${r.metadata.title || r.metadata.url}\n${r.content}\nSource: ${r.metadata.url}\n`)
+            .map((r, i) => `[${i + 1}] ${r.metadata.title || r.metadata.url}\n${r.content}\n${formatResultSource(r.metadata)}\n`)
             .join('\n---\n');
-          const MAX_CHARS = 18000;
-          if (formatted.length > MAX_CHARS) {
-            formatted = formatted.slice(0, MAX_CHARS) + '\n... (truncated; use read_documentation_page for full content)';
-          }
+          formatted = truncateToTokenBudget(formatted, tokenBudget(args, 4500));
           return { content: [{ type: 'text' as const, text: formatted || 'No relevant documentation found.' }] };
         })());
       } catch (e: any) {
@@ -117,6 +138,8 @@ export async function startStdioServer(slug: string): Promise<void> {
       inputSchema: z.object({
         urlOrPath: z.string().describe('URL or path fragment to read'),
         maxChunks: z.number().int().min(1).max(30).default(15),
+        maxTokens: z.number().int().min(500).max(20000).optional(),
+        contextWindowTokens: z.number().int().min(1000).max(1000000).optional(),
       }) as any,
     } as any,
     async (args: any) => {
@@ -129,7 +152,8 @@ export async function startStdioServer(slug: string): Promise<void> {
             return { content: [{ type: 'text' as const, text: `Page not found: ${urlOrPath}` }] };
           }
           await audit('read_documentation_page', { urlOrPath: String(urlOrPath).slice(0, 200), found: true, chunks: page.chunks?.length || 0 });
-          return { content: [{ type: 'text' as const, text: `# ${page.title}\n\nSource: ${page.url}\n\n${page.content}` }] };
+          const text = `# ${page.title}\n\nSource: ${page.url}${meta?.definition?.template ? `\nTemplate: ${meta.definition.template.name}` : ''}\n\n${page.content}`;
+          return { content: [{ type: 'text' as const, text: truncateToTokenBudget(text, tokenBudget(args, 7000)) }] };
         })());
       } catch (e: any) {
         await audit('tool_error', { toolName: 'read_documentation_page', reason: e?.message || String(e) });

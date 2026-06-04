@@ -18,15 +18,19 @@ import { randomBytes } from 'node:crypto';
 import { execSync } from 'node:child_process';
 import { buildDashboardHtml } from './assets.js';
 import { generateAuthKey } from '../lib/auth.js';
+import { getTemplate, listTemplates } from '../app/services/catalog.js';
 import {
   createServer,
   deleteRegisteredServer,
   getServerInfo,
   getServerLogTail,
+  getServerSourceLabel,
   listRegisteredServers,
   reindexServer,
   verifyServer,
 } from '../app/services/servers.js';
+import { SourceDefinitionSchema, type SourceDefinition } from '../sources/types.js';
+import { instantiateTemplate } from '../app/services/catalog.js';
 
 const GUI_TOKEN_FILE = '.gui-token';
 
@@ -122,6 +126,18 @@ function createApp(token: string) {
 
   app.get('/health', (c) => c.json({ status: 'ok', service: 'hoolix-gui' }));
 
+  app.get('/api/templates', async (c) => {
+    return c.json(await listTemplates());
+  });
+
+  app.get('/api/templates/:id', async (c) => {
+    try {
+      return c.json(await getTemplate(c.req.param('id')));
+    } catch (e: any) {
+      return c.json({ error: e.message || String(e) }, 404);
+    }
+  });
+
   // List servers + live status
   app.get('/api/servers', async (c) => {
     const servers = await listRegisteredServers({ includeStatus: true });
@@ -130,6 +146,9 @@ function createApp(token: string) {
       const st = s.status || { running: false };
       enriched.push({
         ...maskServerMetadata(s),
+        sourceCount: s.definition?.sources.length ?? 1,
+        sourceLabel: (s.definition?.sources.length ?? 1) > 1 ? getServerSourceLabel(s) : s.sourceUrl,
+        templateLabel: s.definition?.template?.name,
         running: st.running,
         port: st.port,
         pid: st.pid,
@@ -143,7 +162,27 @@ function createApp(token: string) {
     const body = await c.req.json().catch(() => ({}));
     const name = (body.name || '').trim();
     const url = (body.url || '').trim();
-    if (!name || !url) {
+    let parsedSources: SourceDefinition[] = [];
+    let templateDefinition;
+    try {
+      parsedSources = Array.isArray(body.sources)
+        ? body.sources.map((source: unknown) => SourceDefinitionSchema.parse(source)) as SourceDefinition[]
+        : [];
+      if (body.templateId) {
+        const inputs: Record<string, string> = {};
+        if (url) inputs.url = url;
+        if (typeof body.repo === 'string' && body.repo.trim()) inputs.repo = body.repo.trim();
+        if (body.templateInputs && typeof body.templateInputs === 'object') {
+          for (const [key, value] of Object.entries(body.templateInputs)) {
+            if (typeof value === 'string') inputs[key] = value;
+          }
+        }
+        templateDefinition = (await instantiateTemplate(String(body.templateId), inputs)).definition;
+      }
+    } catch (e: any) {
+      return c.json({ error: 'invalid sources: ' + (e.message || e) }, 400);
+    }
+    if (!name || (!url && parsedSources.length === 0 && !templateDefinition)) {
       return c.json({ error: 'name and url are required' }, 400);
     }
 
@@ -160,7 +199,15 @@ function createApp(token: string) {
     }
 
     try {
-      const created = await createServer({ name, url, embeddingModel, maxChunks: 6000, maxPages: 80 });
+      const created = await createServer({
+        name,
+        url: parsedSources.length > 0 || templateDefinition ? undefined : url,
+        sources: parsedSources.length > 0 ? parsedSources : undefined,
+        definition: templateDefinition,
+        embeddingModel,
+        maxChunks: 6000,
+        maxPages: 80,
+      });
       if (created.indexWarning) {
         logger.warn(`GUI create: RAG indexing warning for ${slug}: ${created.indexWarning}`);
       }
@@ -250,7 +297,12 @@ function createApp(token: string) {
   app.get('/api/servers/:slug', async (c) => {
     const slug = c.req.param('slug');
     const { meta, status } = await getServerInfo(slug);
-    return c.json({ ...maskServerMetadata(meta), ...status });
+    return c.json({
+      ...maskServerMetadata(meta),
+      sourceCount: meta.definition?.sources.length ?? 1,
+      sourceLabel: (meta.definition?.sources.length ?? 1) > 1 ? getServerSourceLabel(meta) : meta.sourceUrl,
+      ...status,
+    });
   });
 
   // Simple logs tail

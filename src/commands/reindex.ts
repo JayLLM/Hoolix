@@ -3,12 +3,28 @@ import { getServerMetadata } from '../core/registry.js';
 import { loadConfig } from '../core/config.js';
 import { logger } from '../core/logger.js';
 import { resolveEmbeddingModel, isHybridModel } from '../lib/embedding.js';
-import { reindexServer } from '../app/services/servers.js';
+import { listDueReindexServers, reindexServer, updateReindexSchedule } from '../app/services/servers.js';
 import type { AppProgressEvent } from '../app/events.js';
 import { printTitle, printDetails, printJson } from '../ui/format.js';
 
 export async function cmdReindex(args: string[], json: boolean): Promise<void> {
   const slug = args[1];
+  if (args.includes('--due')) {
+    const due = await listDueReindexServers();
+    const cfg = await loadConfig();
+    const results = [];
+    for (const server of due) {
+      const embeddingModel = resolveEmbeddingModel(args, cfg);
+      const result = await reindexServer({ slug: server.slug, embeddingModel, maxChunks: 6000, maxPages: 80 });
+      results.push({ slug: server.slug, skipped: !!result.skipped, chunks: result.ingestion.stats.totalChunks });
+    }
+    if (json) printJson({ ok: true, due: due.length, results });
+    else {
+      printTitle('Scheduled Reindex', `${due.length} due server${due.length === 1 ? '' : 's'} processed.`);
+      printDetails(results.map((r) => [r.slug, r.skipped ? 'unchanged' : `${r.chunks} chunks`]));
+    }
+    return;
+  }
   if (!slug) {
     if (json) printJson({ ok: false, error: 'Missing slug. Next: pass hoolix reindex <slug> --yes --json.' });
     else logger.error('Usage: hoolix reindex <slug> [--yes] [--json]');
@@ -28,6 +44,24 @@ export async function cmdReindex(args: string[], json: boolean): Promise<void> {
     if (json) printJson({ ok: false, slug, error: 'This server has no recorded sourceUrl and cannot be reindexed.' });
     else logger.error('This server has no recorded sourceUrl and cannot be reindexed.');
     process.exit(1);
+  }
+
+  const scheduleValue = args.includes('--schedule') ? args[args.indexOf('--schedule') + 1] : undefined;
+  if (scheduleValue) {
+    const hours = scheduleValue === 'off'
+      ? null
+      : scheduleValue === 'daily'
+        ? 24
+        : scheduleValue === 'hourly'
+          ? 1
+          : parseInt(scheduleValue, 10);
+    if (hours === null || (Number.isFinite(hours) && hours > 0)) {
+      await updateReindexSchedule(slug, hours);
+    } else {
+      if (json) printJson({ ok: false, slug, error: 'Invalid --schedule. Next: use hourly, daily, off, or a positive hour count.' });
+      else logger.error('Invalid --schedule. Next: use hourly, daily, off, or a positive hour count.');
+      process.exit(1);
+    }
   }
 
   const force = args.includes('--yes') || args.includes('-y');
@@ -62,6 +96,8 @@ export async function cmdReindex(args: string[], json: boolean): Promise<void> {
       embeddingModel,
       maxChunks: 6000,
       maxPages: 80,
+      incremental: !args.includes('--no-incremental'),
+      force: args.includes('--force'),
       onProgress: (p: AppProgressEvent) => {
         if (p.stage === 'index') {
           if (!ingestStopped) {
@@ -96,7 +132,7 @@ export async function cmdReindex(args: string[], json: boolean): Promise<void> {
       ragSpinner?.stop('Index rebuild encountered issues');
       if (!json) logger.warn('RAG reindex error:', reindexed.indexWarning);
     } else {
-      ragSpinner?.stop(`Search index rebuilt (${reindexed.indexLabel})`);
+      ragSpinner?.stop(reindexed.skipped ? 'Search index unchanged (incremental skip)' : `Search index rebuilt (${reindexed.indexLabel})`);
     }
 
     if (json) {
@@ -109,6 +145,8 @@ export async function cmdReindex(args: string[], json: boolean): Promise<void> {
         pagesProcessed: result.stats.pagesProcessed,
         embeddingModel,
         vectorIndexed:  isHybridModel(embeddingModel),
+        skipped:        reindexed.skipped || false,
+        schedule:       reindexed.meta.reindexSchedule || null,
       });
     } else {
       printTitle('Reindexed', `"${slug}" is fresh and searchable.`);

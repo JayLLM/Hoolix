@@ -76,6 +76,9 @@ export function buildDashboardHtml(_initialToken: string): string {
           <a href="#" onclick="showCreateModal(); return false;" class="nav-link flex items-center gap-x-3 px-3 py-2 text-sm hover:bg-zinc-800 rounded-lg">
             <i class="fa-solid fa-plus w-4"></i> <span>Create Server</span>
           </a>
+          <a href="#" onclick="showView('templates'); return false;" class="nav-link flex items-center gap-x-3 px-3 py-2 text-sm hover:bg-zinc-800 rounded-lg" data-view="templates">
+            <i class="fa-solid fa-list w-4"></i> <span>Templates</span>
+          </a>
           <a href="#" onclick="showView('playground'); return false;" class="nav-link flex items-center gap-x-3 px-3 py-2 text-sm hover:bg-zinc-800 rounded-lg" data-view="playground">
             <i class="fa-solid fa-search w-4"></i> <span>Playground</span>
           </a>
@@ -134,6 +137,18 @@ export function buildDashboardHtml(_initialToken: string): string {
             <i class="fa-solid fa-server text-4xl text-zinc-700 mb-3"></i>
             <div class="text-zinc-400">No servers yet. Create your first one!</div>
           </div>
+        </div>
+
+        <!-- Playground view -->
+        <div id="view-templates" class="hidden">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <div class="text-2xl font-semibold tracking-tight">Official Templates</div>
+              <div class="text-zinc-500 text-sm">Create known-good MCP servers from curated source presets</div>
+            </div>
+            <button onclick="loadTemplates()" class="px-3 py-1.5 text-xs rounded-lg bg-zinc-800 hover:bg-zinc-700">Refresh</button>
+          </div>
+          <div id="templates-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
         </div>
 
         <!-- Playground view -->
@@ -211,6 +226,7 @@ export function buildDashboardHtml(_initialToken: string): string {
   <script>
     let CURRENT_TOKEN = new URLSearchParams(location.search).get('token') || '';
     let SERVERS = [];
+    let TEMPLATES = [];
     let POLL_INTERVAL = null;
 
     function tailwindInit() {
@@ -246,6 +262,7 @@ export function buildDashboardHtml(_initialToken: string): string {
       if (active) active.classList.add('nav-active');
 
       if (view === 'servers') refreshServers();
+      if (view === 'templates') loadTemplates();
       if (view === 'playground') loadPlaygroundServers();
     }
 
@@ -290,6 +307,9 @@ export function buildDashboardHtml(_initialToken: string): string {
         const statusColor = isRunning ? 'bg-emerald-400' : 'bg-zinc-500';
         const statusText = isRunning ? 'RUNNING' : 'STOPPED';
         const modelLabel = s.embeddingModel && s.embeddingModel.startsWith('hybrid') ? s.embeddingModel : 'fuse';
+        const sourceCount = s.sourceCount || (s.definition && s.definition.sources ? s.definition.sources.length : 1);
+        const sourceLabel = s.sourceLabel || s.sourceUrl || '';
+        const templateLabel = s.templateLabel ? '<div>' + s.templateLabel + '</div>' : '';
 
         const card = document.createElement('div');
         card.className = 'card bg-zinc-900 border border-zinc-800 rounded-2xl p-4';
@@ -308,8 +328,11 @@ export function buildDashboardHtml(_initialToken: string): string {
           <div class="mt-3 text-xs flex gap-x-4 text-zinc-400">
             <div><span class="font-mono">\${(s.chunkCount || 0).toLocaleString()}</span> chunks</div>
             <div>\${modelLabel}</div>
+            <div>\${sourceCount} source\${sourceCount === 1 ? '' : 's'}</div>
+            \${templateLabel}
             \${s.port ? \`<div>:\${s.port}</div>\` : ''}
           </div>
+          <div class="mt-1 text-[10px] text-zinc-500 line-clamp-3">\${sourceLabel}</div>
 
           <div class="mt-4 flex flex-wrap gap-2">
             <button data-action="toggle" data-slug="\${s.slug}" data-running="\${isRunning}" class="text-xs px-3 py-1 rounded-lg \${isRunning ? 'bg-red-900/60 hover:bg-red-900 text-red-400' : 'bg-emerald-900/60 hover:bg-emerald-900 text-emerald-400'}">
@@ -396,6 +419,55 @@ export function buildDashboardHtml(_initialToken: string): string {
       document.getElementById('create-modal').classList.add('flex');
     }
 
+    async function loadTemplates() {
+      const grid = document.getElementById('templates-grid');
+      if (!grid) return;
+      grid.innerHTML = '<div class="text-xs text-zinc-500">Loading templates...</div>';
+      try {
+        TEMPLATES = await api('/api/templates');
+        grid.innerHTML = '';
+        TEMPLATES.forEach(t => {
+          const card = document.createElement('div');
+          card.className = 'card bg-zinc-900 border border-zinc-800 rounded-2xl p-4';
+          const required = (t.inputs || []).filter(i => i.required).map(i => i.name).join(', ') || 'none';
+          card.innerHTML = \`
+            <div class="flex justify-between items-start gap-3">
+              <div>
+                <div class="font-semibold text-base">\${t.name}</div>
+                <div class="text-xs text-zinc-500 font-mono">\${t.id}</div>
+              </div>
+              <div class="text-[10px] uppercase tracking-widest text-sky-400">\${t.category}</div>
+            </div>
+            <div class="mt-3 text-sm text-zinc-300 line-clamp-3">\${t.description}</div>
+            <div class="mt-3 text-xs text-zinc-500">Required: \${required}</div>
+            <div class="mt-4 flex gap-2">
+              <button data-template="\${t.id}" class="text-xs px-3 py-1 rounded-lg bg-sky-400 text-black font-medium">Use Template</button>
+              <button data-info="\${t.id}" class="text-xs px-3 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700">Info</button>
+            </div>
+          \`;
+          card.querySelector('[data-template]').addEventListener('click', () => useTemplate(t.id));
+          card.querySelector('[data-info]').addEventListener('click', () => {
+            alert(t.name + '\\n\\n' + t.description + '\\n\\nInputs: ' + required);
+          });
+          grid.appendChild(card);
+        });
+      } catch (e) {
+        grid.innerHTML = '<div class="text-red-400 text-sm">Could not load templates: ' + e.message + '</div>';
+      }
+    }
+
+    function useTemplate(id) {
+      const t = TEMPLATES.find(x => x.id === id);
+      showCreateModal();
+      const name = document.getElementById('create-name');
+      const url = document.getElementById('create-url');
+      name.value = t ? t.name.replace(/ MCP$/, '') : 'Template Server';
+      url.dataset.templateId = id;
+      url.placeholder = id === 'github-docs' ? 'owner/repo' : (id === 'docs-rag' ? 'https://example.com/llms.txt' : '(no input needed)');
+      url.value = '';
+      showToast('Template selected: ' + id);
+    }
+
     function hideCreateModal() {
       const m = document.getElementById('create-modal');
       m.classList.add('hidden');
@@ -404,16 +476,24 @@ export function buildDashboardHtml(_initialToken: string): string {
 
     async function submitCreate() {
       const name = document.getElementById('create-name').value.trim();
-      const url = document.getElementById('create-url').value.trim();
+      const urlEl = document.getElementById('create-url');
+      const url = urlEl.value.trim();
       const hybrid = document.getElementById('create-hybrid').checked;
+      const templateId = urlEl.dataset.templateId || '';
 
-      if (!name || !url) return alert('Name and URL required');
+      if (!name || (!url && !templateId)) return alert('Name and URL required');
 
       try {
+        const body = { name, url, hybrid };
+        if (templateId) {
+          body.templateId = templateId;
+          if (templateId === 'github-docs') body.repo = url;
+        }
         const res = await api('/api/servers', {
           method: 'POST',
-          body: JSON.stringify({ name, url, hybrid })
+          body: JSON.stringify(body)
         });
+        urlEl.dataset.templateId = '';
         hideCreateModal();
         showToast('Server created: ' + res.slug);
         showView('servers');

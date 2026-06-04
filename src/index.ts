@@ -99,6 +99,13 @@ async function main() {
       await cmdVerify(args);
       return;
     }
+    case 'templates':
+    case 'template':
+    case 'catalog': {
+      const { cmdTemplates } = await import('./commands/templates.js');
+      await cmdTemplates(args, jsonOutput);
+      return;
+    }
 
     // ── Integration ───────────────────────────────────────────────────────
     case 'connect': {

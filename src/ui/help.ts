@@ -9,7 +9,8 @@ ${chalk.bold('Usage')}
   hoolix [command] [options]
 
 ${chalk.bold('Commands')}
-  ${ui.accent('create')} [name]         Create server from docs URL (real ingestion + RAG; --yes, --json, --hybrid, --embedding-model)
+  ${ui.accent('create')} [name]         Create server from docs URL/sources/templates (--url, --source, --template, --header, --cookie, --schedule)
+  ${ui.accent('templates')}             List and inspect official templates (list, info <id>, --json)
   ${ui.accent('list')}                  List registered servers (--json)
   ${ui.accent('start')} <slug>          Start the MCP server (--port, --transport http|stdio, --json)
   ${ui.accent('stop')} <slug>           Stop a running server (--json)
@@ -21,7 +22,7 @@ ${chalk.bold('Commands')}
   ${ui.accent('export')} <slug>         Export server metadata + chunks to a .hoolix.json bundle (--file, --include-key, --json)
   ${ui.accent('import')} --file <path>  Import a .hoolix.json bundle (--slug, --yes, --json)
   ${ui.accent('delete')} <slug>         Remove server and data (--yes, --json)
-  ${ui.accent('reindex')} <slug>        Re-fetch source and rebuild the RAG index (--yes, --json, --hybrid, --embedding-model)
+  ${ui.accent('reindex')} <slug>        Incrementally re-fetch and rebuild RAG (--yes, --json, --force, --schedule hourly|daily|off, --due)
   ${ui.accent('verify')} <slug>         Check RAG health, samples, grounding + optional --eval / --json
   ${ui.accent('gui')}                   Launch web GUI / dashboard in browser (port 8080, token auth, create/manage/playground)
   ${ui.accent('doctor')} [--json]       Diagnose installation, paths, config, and runtime
@@ -31,9 +32,16 @@ ${chalk.bold('Commands')}
 
 ${chalk.bold('Examples')}
   ${ui.accent('›')} hoolix create "My Docs" --url https://example.com/llms.txt --yes
+  ${ui.accent('›')} hoolix templates list
+  ${ui.accent('›')} hoolix create "React Docs" --template docs-rag --url https://react.dev/llms.txt --yes
+  ${ui.accent('›')} hoolix create "Private Docs" --url https://docs.example.com/llms.txt --header "Authorization: Bearer $TOKEN" --yes
+  ${ui.accent('›')} hoolix reindex my-docs --schedule daily --yes
+  ${ui.accent('›')} hoolix reindex --due --json
+  ${ui.accent('›')} hoolix create "Stack" --source docs:https://react.dev/llms.txt --source github:vercel/next.js --yes
   ${ui.accent('›')} hoolix create "My Docs" --url https://example.com/llms.txt --yes --json
   ${ui.accent('›')} hoolix verify my-docs
   ${ui.accent('›')} hoolix start my-docs
+  ${ui.accent('›')} hoolix start my-docs --transport stdio --json
   ${ui.accent('›')} hoolix connect my-docs --client cursor
   ${ui.accent('›')} hoolix rotate my-docs
   ${ui.accent('›')} hoolix audit my-docs --limit 20 --json

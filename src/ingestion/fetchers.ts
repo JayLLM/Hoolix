@@ -127,9 +127,9 @@ export async function fetchTextWithFallback(
  */
 export async function fetchDocumentation(
   url: string,
-  opts: { discoverLlms?: boolean } = {}
+  opts: { discoverLlms?: boolean; headers?: Record<string, string> } = {}
 ): Promise<FetchResult> {
-  const { discoverLlms = true } = opts;
+  const { discoverLlms = true, headers = {} } = opts;
   const normalized = url.trim();
 
   // GitHub special-case (early, non-breaking): prefer llms/README discovery + raw fetches.
@@ -152,11 +152,11 @@ export async function fetchDocumentation(
   // Direct llms: try full sibling first for best RAG content.
   if (normalized.endsWith('llms.txt') || normalized.endsWith('llms-full.txt')) {
     if (normalized.endsWith('llms.txt')) {
-      const full = await tryFetchLlmsFull(normalized);
+      const full = await tryFetchLlmsFull(normalized, headers);
       if (full) return full;
     }
     const { text } = await fetchTextWithFallback(normalized, {
-      headers: { Accept: 'text/plain' },
+      headers: { Accept: 'text/plain', ...headers },
     });
     return {
       content: text,
@@ -188,7 +188,7 @@ export async function fetchDocumentation(
           try {
             const fetched = await fetchTextWithFallback(cand, {
               timeout: 12000,
-              headers: { 'User-Agent': ua, 'Accept': 'text/plain' },
+              headers: { 'User-Agent': ua, 'Accept': 'text/plain', ...headers },
             });
             if (fetched.text.length > 200) {
               foundText = fetched.text;
@@ -201,7 +201,7 @@ export async function fetchDocumentation(
         if (foundText) {
           // llms.txt hit: still attempt full sibling first.
           if (cand.endsWith('llms.txt')) {
-            const full = await tryFetchLlmsFull(cand);
+            const full = await tryFetchLlmsFull(cand, headers);
             if (full) return full;
           }
           logger.info(`Found llms at ${cand}`);
@@ -214,7 +214,7 @@ export async function fetchDocumentation(
   }
 
   // Generic or manifest sub-page content (no llms discovery).
-  const res = await fetchWithRetry(normalized);
+  const res = await fetchWithRetry(normalized, { headers });
   const contentType = res.headers.get('content-type') || '';
   const text = await res.text();
 
@@ -226,7 +226,7 @@ export async function fetchDocumentation(
 }
 
 /** Try sibling/peer llms-full.txt for a given llms.txt (returns null if none usable). */
-export async function tryFetchLlmsFull(llmsTxtUrl: string): Promise<FetchResult | null> {
+export async function tryFetchLlmsFull(llmsTxtUrl: string, headers: Record<string, string> = {}): Promise<FetchResult | null> {
   try {
     const u = new URL(llmsTxtUrl);
     const candidates: string[] = [
@@ -237,7 +237,7 @@ export async function tryFetchLlmsFull(llmsTxtUrl: string): Promise<FetchResult 
     for (const cand of candidates) {
       if (cand === llmsTxtUrl) continue;
       try {
-        const { text } = await fetchTextWithFallback(cand, { timeout: 15000 });
+        const { text } = await fetchTextWithFallback(cand, { timeout: 15000, headers });
         if (text.length > 1500) {
           logger.info(`Found llms-full.txt at ${cand}`);
           return { content: text, contentType: 'text/markdown', url: cand };
@@ -301,6 +301,7 @@ export async function fetchPagesConcurrently(
   urls: string[],
   concurrency = 4,
   onProgress?: (completed: number, total: number) => void,
+  headers: Record<string, string> = {},
 ): Promise<FetchResult[]> {
   const results: FetchResult[] = [];
   const queue = [...urls];
@@ -311,7 +312,7 @@ export async function fetchPagesConcurrently(
     while (queue.length > 0) {
       const url = queue.shift()!;
       try {
-        const r = await fetchDocumentation(url, { discoverLlms: false });
+        const r = await fetchDocumentation(url, { discoverLlms: false, headers });
         results.push(r);
       } catch (err: any) {
         logger.debug(`Sub-page fetch failed for ${url}: ${err?.message || err}`);

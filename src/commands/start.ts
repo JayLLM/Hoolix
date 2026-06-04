@@ -37,6 +37,17 @@ export async function cmdStart(args: string[], json: boolean): Promise<void> {
         },
       },
     };
+    if (json) {
+      printJson({
+        ok: true,
+        slug,
+        name: meta.name,
+        transport: 'stdio',
+        ...clientConfig,
+        next: [`Add this config to your MCP client`, `hoolix verify ${slug} --json`],
+      });
+      return;
+    }
     process.stderr.write(`\nhoolix › "${meta.name}" starting in stdio mode\n\n`);
     process.stderr.write('Client config (paste into your MCP client):\n');
     process.stderr.write(JSON.stringify(clientConfig, null, 2) + '\n\n');

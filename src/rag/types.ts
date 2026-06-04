@@ -7,6 +7,9 @@ export interface SearchResult {
     sectionPath?: string;
     headings?: string[];
     charCount: number;
+    sourceId?: string;
+    sourceType?: string;
+    sourceLabel?: string;
   };
   citationId?: string;
 }

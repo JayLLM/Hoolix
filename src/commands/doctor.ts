@@ -4,6 +4,8 @@ import { VERSION } from '../core/version.js';
 import { ensureDirectories } from '../core/paths.js';
 import { loadConfig } from '../core/config.js';
 import { listServers } from '../core/registry.js';
+import { getServerDataDir } from '../core/paths.js';
+import { listTemplates } from '../app/services/catalog.js';
 import { printTitle, printCommand, printDetails, printJson, ui } from '../ui/format.js';
 
 export async function cmdDoctor(json: boolean): Promise<void> {
@@ -47,14 +49,30 @@ export async function cmdDoctor(json: boolean): Promise<void> {
 
   try {
     const servers = await listServers();
-    results.servers = { count: servers.length, slugs: servers.map((s) => s.slug) };
+    const scheduled = servers.filter((s) => s.reindexSchedule?.enabled).length;
+    let rateStates = 0;
+    for (const s of servers) {
+      if (await fs.pathExists(path.join(getServerDataDir(s.slug), 'rate-state.json'))) rateStates++;
+    }
+    results.servers = { count: servers.length, slugs: servers.map((s) => s.slug), scheduledReindex: scheduled, persistedRateStates: rateStates };
     checks.push({ name: 'registry', ok: true, detail: `${servers.length} server(s)` });
+    checks.push({ name: 'scheduled-reindex', ok: true, detail: `${scheduled} enabled` });
+    checks.push({ name: 'rate-state', ok: true, detail: `${rateStates} persisted state file(s)` });
   } catch (e: any) {
     checks.push({ name: 'registry', ok: false, detail: e.message });
     results.servers = { error: e.message };
   }
 
   checks.push({ name: 'process-manager', ok: true });
+  checks.push({ name: 'stdio-transport', ok: true, detail: 'hoolix start <slug> --transport stdio' });
+
+  try {
+    const templates = await listTemplates();
+    results.catalog = { templates: templates.length, ids: templates.map((t) => t.id) };
+    checks.push({ name: 'template-catalog', ok: templates.length > 0, detail: `${templates.length} template(s)` });
+  } catch (e: any) {
+    checks.push({ name: 'template-catalog', ok: false, detail: e.message || String(e) });
+  }
 
   let netOk = false;
   try {
@@ -100,14 +118,16 @@ export async function cmdDoctor(json: boolean): Promise<void> {
   if (allOk) {
     console.log(`  ${ui.success('✓')} All checks passed. Installation looks healthy.`);
     printCommand('hoolix create "My Docs" --url https://example.com/llms.txt --yes');
+    printCommand('hoolix templates list');
     printCommand('hoolix start my-docs && hoolix connect my-docs --client cursor');
+    printCommand('hoolix start my-docs --transport stdio --json');
   } else {
     console.log(`  ${ui.warning('!')} Some checks failed or are limited. See details above.`);
     console.log(`  ${ui.muted('Common fixes: ensure write access to data dir, check network for initial llms.txt fetches.')}`);
   }
   console.log('');
   console.log(`  ${ui.muted('Security:')} keys are per-server + rotatable; rate limits + audit.log enabled in host (see \`hoolix audit <slug>\`).`);
-  console.log(`  ${ui.muted('Private GitHub:')} export GITHUB_TOKEN for full raw+tree access on private repos (see docs).`);
+  console.log(`  ${ui.muted('Private sources:')} use --header "Authorization: Bearer <token>", --cookie "...", or GITHUB_TOKEN for private GitHub.`);
 
   if (!allOk) process.exit(1);
 }

@@ -4,10 +4,14 @@ import type { EmbeddingModel } from '../rag/models.js';
 import type { RAGDiagnostics, SearchResult, TableOfContentsItem } from '../rag/types.js';
 import type { SourceType, IngestionResult } from '../ingestion/types.js';
 import type { AppProgressHandler } from './events.js';
+import type { ServerDefinition, SourceDefinition } from '../sources/types.js';
 
 export interface CreateServerInput {
   name: string;
-  url: string;
+  url?: string;
+  sources?: SourceDefinition[];
+  definition?: ServerDefinition;
+  templateId?: string;
   embeddingModel: EmbeddingModel;
   maxChunks?: number;
   maxPages?: number;
@@ -26,6 +30,8 @@ export interface ReindexServerInput {
   embeddingModel: EmbeddingModel;
   maxChunks?: number;
   maxPages?: number;
+  incremental?: boolean;
+  force?: boolean;
   onProgress?: AppProgressHandler;
 }
 
@@ -34,6 +40,8 @@ export interface ReindexServerResult {
   ingestion: IngestionResult;
   indexLabel: string;
   indexWarning?: string;
+  skipped?: boolean;
+  reason?: string;
 }
 
 export interface DeleteServerResult {
@@ -94,4 +102,7 @@ export interface VerifyReport {
   diagnostics: RAGDiagnostics | null;
   embeddingModel: EmbeddingModel;
   freshnessUpdatedAt: string;
+  definition: ServerDefinition;
+  sourceCount: number;
+  sourceLabels: string[];
 }

@@ -1,5 +1,5 @@
 import { validateServerState } from '../core/registry.js';
-import { listRegisteredServers } from '../app/services/servers.js';
+import { getServerSourceLabel, listRegisteredServers } from '../app/services/servers.js';
 import { logger } from '../core/logger.js';
 import { printTitle, printSection, printCommand, printTable, printJson, truncate, getFreshness, formatDate } from '../ui/format.js';
 
@@ -26,7 +26,8 @@ export async function cmdList(json: boolean): Promise<void> {
     Slug:      s.slug,
     Chunks:    s.chunkCount.toLocaleString(),
     Freshness: getFreshness(s.lastUpdatedAt).message,
-    Source:    truncate(s.sourceUrl, 48),
+    Source:    truncate((s.definition?.sources.length ?? 1) > 1 ? getServerSourceLabel(s) : s.sourceUrl, 48),
+    Template:  truncate(s.definition?.template?.id || '-', 18),
     Created:   formatDate(s.createdAt),
   }));
 
