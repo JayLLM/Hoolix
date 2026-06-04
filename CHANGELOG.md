@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.1-beta.6] - 2026-06-04
+
 ### Added
 
 - **stdio MCP transport** — `hoolix start <slug> --transport stdio` runs the MCP server in-process over stdin/stdout, compatible with Claude Desktop, VS Code extensions, and any MCP client that prefers the stdio transport. All three tools (`search_documentation`, `read_documentation_page`, `get_table_of_contents`) work identically; audit logging is preserved. Human-readable output is written to stderr so the MCP protocol on stdout is never corrupted. The `hoolix start` HTTP output now also prints the matching stdio client config snippet so users see both options at once.
@@ -99,7 +101,8 @@ App currently hangs during github workflow. Will be investigated later.
 - Added optional hybrid RAG with lazy BGE embedding + RRF reranker behind `--hybrid` / `--embedding-model`.
 - Added one-command client wiring for Claude/Cursor/Windsurf/Continue/Cline/GrokBuild and `--json` scripting support.
 
-[Unreleased]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.5...HEAD
+[Unreleased]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.6...HEAD
+[0.0.1-beta.6]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.5...v0.0.1-beta.6
 [0.0.1-beta.5]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.4...v0.0.1-beta.5
 [0.0.1-beta.4]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.3...v0.0.1-beta.4
 [0.0.1-beta.3]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.2...v0.0.1-beta.3
