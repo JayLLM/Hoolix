@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Added a shared `src/app/` service layer for server create, reindex, verify, list, info, delete, status, and log-tail orchestration so CLI commands, TUI actions, and Web GUI API routes now use the same business logic while preserving existing flags, output shapes, and on-disk server metadata.
+
 ## [0.0.1-beta.6] - 2026-06-04
 
 ### Added

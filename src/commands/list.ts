@@ -1,9 +1,10 @@
-import { listServers, validateServerState } from '../core/registry.js';
+import { validateServerState } from '../core/registry.js';
+import { listRegisteredServers } from '../app/services/servers.js';
 import { logger } from '../core/logger.js';
 import { printTitle, printSection, printCommand, printTable, printJson, truncate, getFreshness, formatDate } from '../ui/format.js';
 
 export async function cmdList(json: boolean): Promise<void> {
-  const servers = await listServers();
+  const servers = await listRegisteredServers();
 
   if (json) {
     printJson(servers);

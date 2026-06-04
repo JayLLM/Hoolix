@@ -1,13 +1,12 @@
 import { intro, outro, text, confirm, isCancel, cancel, spinner } from '@clack/prompts';
 import chalk from 'chalk';
-import { registerServer, slugify } from '../core/registry.js';
+import { slugify } from '../core/registry.js';
 import { loadConfig } from '../core/config.js';
 import { logger } from '../core/logger.js';
-import { ingestDocumentation } from '../ingestion/pipeline.js';
-import { createRAGForServer } from '../rag/store.js';
 import { ServerAlreadyExistsError } from '../core/errors.js';
-import { generateAuthKey } from '../lib/auth.js';
-import { resolveEmbeddingModel, isHybridModel } from '../lib/embedding.js';
+import { resolveEmbeddingModel } from '../lib/embedding.js';
+import { createServer } from '../app/services/servers.js';
+import type { AppProgressEvent } from '../app/events.js';
 import {
   printTitle, printSection, printCommand, printDetails, printJson, truncate, ui,
 } from '../ui/format.js';
@@ -66,53 +65,53 @@ export async function cmdCreate(args: string[], json: boolean): Promise<void> {
   if (isCancel(confirmed) || !confirmed) { cancel('Cancelled'); process.exit(0); }
 
   const s = json ? null : spinner();
+  let ragSpinner: any = null;
+  let ingestStopped = false;
+  let lastIngestMessage = 'Ingestion complete';
   s?.start('Ingesting documentation... (10–120s for multi-page llms.txt sites)');
 
   try {
-    const result = await ingestDocumentation(url, {
-      maxChunks: 6000,
-      maxPages:  80,
-      onProgress: (p) => {
-        if (p.message) {
-          const suffix = p.current != null && p.total != null ? ` (${p.current}/${p.total})` : '';
-          s?.message(`${p.message}${suffix}`);
-        }
-      },
-    });
-    s?.stop(`Ingestion complete: ${result.stats.totalChunks} chunks, ${(result.stats.totalChars / 1000).toFixed(1)}k chars`);
-
     const cfg            = await loadConfig();
     const embeddingModel = resolveEmbeddingModel(args, cfg);
 
-    const ragSpinner = json ? null : spinner();
-    ragSpinner?.start('Building search index...');
-    try {
-      const rag = await createRAGForServer(slug, embeddingModel);
-      await rag.indexChunks(result.chunks, {
-        embeddingModel,
-        onProgress: (p) => { if (p.stage === 'embed' && p.message) ragSpinner?.message(p.message); },
-      });
-      await rag.close?.();
-      const idxLabel = isHybridModel(embeddingModel) ? `Hybrid (${embeddingModel})` : 'Fuse.js';
-      ragSpinner?.stop(`Search index built (${idxLabel})`);
-    } catch (ragErr: any) {
-      ragSpinner?.stop('Search index step had issues (server registered; you can reindex later)');
-      if (!json) logger.warn('RAG indexing error:', ragErr.message || ragErr);
-    }
-
-    const meta = await registerServer({
+    const created = await createServer({
       name,
-      slug,
-      sourceUrl:        result.sourceUrl,
-      sourceType:       result.sourceType,
-      ingestionVersion: '1.0.0',
+      url,
       embeddingModel,
-      chunkCount:       result.stats.totalChunks,
-      ingestionStats:   result.stats,
-      vectorIndexed:    isHybridModel(embeddingModel),
-      authKey:          generateAuthKey(),
-      desiredState:     'stopped',
+      maxChunks: 6000,
+      maxPages: 80,
+      onProgress: (p: AppProgressEvent) => {
+        if (p.stage === 'index') {
+          if (!ingestStopped) {
+            ingestStopped = true;
+            s?.stop(lastIngestMessage);
+            ragSpinner = json ? null : spinner();
+            ragSpinner?.start('Building search index...');
+          }
+          if (p.message && p.message !== 'Building search index...') ragSpinner?.message(p.message);
+          return;
+        }
+        if (p.stage === 'embed') {
+          if (p.message) ragSpinner?.message(p.message);
+          return;
+        }
+        if (p.message && !ingestStopped) {
+          const suffix = p.current != null && p.total != null ? ` (${p.current}/${p.total})` : '';
+          lastIngestMessage = `${p.message}${suffix}`;
+          s?.message(lastIngestMessage);
+        }
+      },
     });
+    const { meta, ingestion: result } = created;
+    if (!ingestStopped) {
+      s?.stop(`Ingestion complete: ${result.stats.totalChunks} chunks, ${(result.stats.totalChars / 1000).toFixed(1)}k chars`);
+    }
+    if (created.indexWarning) {
+      ragSpinner?.stop('Search index step had issues (server registered; you can reindex later)');
+      if (!json) logger.warn('RAG indexing error:', created.indexWarning);
+    } else {
+      ragSpinner?.stop(`Search index built (${created.indexLabel})`);
+    }
 
     const pagesInfo = result.sourceUrl.includes('llms-full.txt')
       ? 'llms-full.txt (concatenated documentation)'

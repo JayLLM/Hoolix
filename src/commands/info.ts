@@ -1,5 +1,5 @@
-import { getServerMetadata, validateServerState } from '../core/registry.js';
-import { serverManager } from '../process/manager.js';
+import { validateServerState } from '../core/registry.js';
+import { getServerInfo } from '../app/services/servers.js';
 import { logger } from '../core/logger.js';
 import { isHybridModel } from '../rag/models.js';
 import {
@@ -14,8 +14,7 @@ export async function cmdInfo(args: string[], json: boolean): Promise<void> {
     process.exit(1);
   }
 
-  const meta   = await getServerMetadata(slug);
-  const status = await serverManager.getStatus(slug);
+  const { meta, status } = await getServerInfo(slug);
 
   const full = {
     ...meta,

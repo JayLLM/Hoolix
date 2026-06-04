@@ -1,8 +1,9 @@
 import chalk from 'chalk';
-import { getServerMetadata, validateServerState } from '../core/registry.js';
+import { getServerMetadata } from '../core/registry.js';
 import { createRAGForServer } from '../rag/store.js';
 import { logger } from '../core/logger.js';
 import { isHybridModel } from '../rag/models.js';
+import { verifyServer } from '../app/services/servers.js';
 import { getFreshness, printTitle, printSection, printDetails, truncate, statusText, ui } from '../ui/format.js';
 import type { EmbeddingModel } from '../rag/models.js';
 
@@ -23,78 +24,44 @@ export async function cmdVerify(args: string[]): Promise<void> {
 
   // ── JSON output path ──────────────────────────────────────────────────────
   if (args.includes('--json')) {
-    const validation = await validateServerState(slug);
-    let rag: any;
     try {
-      rag = await createRAGForServer(slug, (meta.embeddingModel as EmbeddingModel) || 'fuse');
+      const report = await verifyServer(slug);
+      console.log(JSON.stringify({
+        slug: report.slug, name: report.name, sourceUrl: report.sourceUrl, chunkCount: report.chunkCount,
+        validation: report.validation,
+        searchable:             report.searchable,
+        groundingPercent:       report.groundingPercent,
+        sourceCoveragePercent:  report.sourceCoveragePercent,
+        uniqueSourceUrls:       report.uniqueSourceUrls,
+        totalChars:             report.totalChars,
+        averageChunkChars:      report.averageChunkChars,
+        duplicateChunkIds:      report.duplicateChunkIds,
+        weakQueries: report.weakQueries,
+        ingestion: report.ingestion,
+        samples: report.samples.map((sample) => ({
+          query: sample.query,
+          hits: sample.hits,
+          top: sample.top,
+          grounded: sample.grounded,
+          weak: sample.weak,
+        })),
+        tocEntries:  report.tocEntries,
+        tocPreview:  report.tocPreview,
+        embeddingModel: report.embeddingModel,
+        freshness:   getFreshness(report.freshnessUpdatedAt),
+      }, null, 2));
+      return;
     } catch (e: any) {
       logger.error('Failed to load RAG:', e.message || e);
       process.exit(1);
     }
-
-    const queries = ['overview', 'install', 'getting started', 'api', 'configuration'];
-    const diagnostics = await rag.getDiagnostics?.();
-    const samples: Array<{
-      query:    string;
-      hits:     number;
-      top:      { title?: string; sectionPath?: string; url: string; score?: number } | null;
-      grounded: boolean;
-      weak:     boolean;
-    }> = [];
-    let groundedCount = 0;
-    const weakQueries: string[] = [];
-
-    for (const query of queries) {
-      const results = await rag.search(query, { limit: 2, mode: 'hybrid' });
-      const top     = results[0];
-      if (top?.metadata.url) groundedCount++;
-      const grounded = !!top?.metadata.url;
-      const weak     = results.length === 0 || !grounded || (top?.score ?? 0) < 0.45;
-      if (weak) weakQueries.push(query);
-      samples.push({
-        query, hits: results.length,
-        top: top ? { title: top.metadata.title, sectionPath: top.metadata.sectionPath, url: top.metadata.url, score: top.score } : null,
-        grounded, weak,
-      });
-    }
-
-    const toc            = await rag.getTableOfContents();
-    const ingestionStats = meta.ingestionStats || null;
-    const likelyTruncated = !!ingestionStats?.truncated || (
-      typeof ingestionStats?.maxChunks === 'number' && meta.chunkCount >= ingestionStats.maxChunks
-    );
-
-    console.log(JSON.stringify({
-      slug, name: meta.name, sourceUrl: meta.sourceUrl, chunkCount: meta.chunkCount,
-      validation,
-      searchable:             samples.some((s) => s.hits > 0),
-      groundingPercent:       Math.round((groundedCount / queries.length) * 100),
-      sourceCoveragePercent:  diagnostics?.sourceCoveragePercent ?? null,
-      uniqueSourceUrls:       diagnostics?.uniqueSourceUrls ?? null,
-      totalChars:             diagnostics?.totalChars ?? null,
-      averageChunkChars:      diagnostics?.averageChunkChars ?? null,
-      duplicateChunkIds:      diagnostics?.duplicateChunkIds ?? null,
-      weakQueries,
-      ingestion: ingestionStats ? {
-        pagesProcessed:  ingestionStats.pagesProcessed,
-        pagesDiscovered: ingestionStats.pagesDiscovered,
-        maxPages:        ingestionStats.maxPages,
-        maxChunks:       ingestionStats.maxChunks,
-        truncated:       likelyTruncated,
-      } : { truncated: likelyTruncated, note: 'No persisted ingestion stats; reindex to record cap details.' },
-      samples,
-      tocEntries:  toc.length,
-      tocPreview:  toc.slice(0, 12),
-      embeddingModel: meta.embeddingModel,
-      freshness:   getFreshness(meta.lastUpdatedAt),
-    }, null, 2));
-    return;
   }
 
   // ── Human output path ─────────────────────────────────────────────────────
   printTitle('Verify', `${meta.name} (${slug})`);
 
-  const v = await validateServerState(slug);
+  const report = await verifyServer(slug, ['overview', 'install', 'getting started', 'api', 'configuration', 'authentication', 'usage']);
+  const v = report.validation;
   printDetails([
     ['Registry chunks', meta.chunkCount.toLocaleString()],
     ['Source',          truncate(meta.sourceUrl, 92)],
@@ -115,11 +82,9 @@ export async function cmdVerify(args: string[]): Promise<void> {
   const sample = await rag.search('overview OR install OR api', { limit: 1 });
   console.log(`  ${ui.muted('RAG searchable')}  ${statusText(sample.length > 0, 'yes', 'no (empty index?)')}`);
 
-  const diagnostics    = await rag.getDiagnostics?.();
   const ingestionStats = meta.ingestionStats;
-  const likelyTruncated = !!ingestionStats?.truncated || (
-    typeof ingestionStats?.maxChunks === 'number' && meta.chunkCount >= ingestionStats.maxChunks
-  );
+  const diagnostics = report.diagnostics;
+  const likelyTruncated = report.ingestion.truncated;
 
   console.log('');
   printSection('Trust signals');
@@ -138,18 +103,17 @@ export async function cmdVerify(args: string[]): Promise<void> {
 
   console.log('');
   printSection('Sample searches (relevance + grounding)');
-  const queries     = ['overview', 'install', 'getting started', 'api', 'configuration', 'authentication', 'usage'];
-  let groundedCount = 0;
   let totalHits     = 0;
   const weakQueries: string[] = [];
 
-  for (const q of queries.slice(0, 5)) {
-    const res = await rag.search(q, { limit: 2, mode: 'hybrid' });
+  const queries = ['overview', 'install', 'getting started', 'api', 'configuration', 'authentication', 'usage'];
+  for (const sampleReport of report.samples.slice(0, 5)) {
+    const q = sampleReport.query;
+    const res = sampleReport.results;
     totalHits += res.length;
     if (res.length > 0) {
       const top      = res[0];
       const hasGround = !!top.metadata.url;
-      if (hasGround) groundedCount++;
       const rel = Math.round((top.score || 0.8) * 100);
       if (!hasGround || (top.score ?? 0) < 0.45) weakQueries.push(q);
       console.log(`  ${ui.accent('›')} ${chalk.bold(q)} ${ui.muted(`${res.length} hit(s)`)}  score=${rel}%  ${hasGround ? ui.success('grounded') : ui.warning('no url')}`);
@@ -162,11 +126,11 @@ export async function cmdVerify(args: string[]): Promise<void> {
     }
   }
 
-  const groundingPct = Math.round((groundedCount / Math.min(5, queries.length)) * 100);
+  const groundingPct = Math.round((report.samples.slice(0, 5).filter((sample) => sample.grounded).length / Math.min(5, queries.length)) * 100);
   console.log(`  ${ui.muted('Grounding quality (sample)')} ${groundingPct}% of top results include source URL + section`);
   if (weakQueries.length > 0) console.log(`  ${ui.muted('Needs attention')} ${weakQueries.join(', ')}`);
 
-  const toc = await rag.getTableOfContents();
+  const toc = report.toc;
   console.log('');
   printSection(`Table of contents (${toc.length} entries)`);
   if (toc.length > 0) {

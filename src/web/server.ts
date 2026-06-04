@@ -2,25 +2,31 @@ import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 import { logger } from '../core/logger.js';
 import {
-  listServers,
   getServerMetadata,
-  registerServer,
-  deleteServer,
   updateServerMetadata,
   slugify,
 } from '../core/registry.js';
 import { serverManager } from '../process/manager.js';
-import { ingestDocumentation } from '../ingestion/pipeline.js';
 import { createRAGForServer } from '../rag/store.js';
-import { SUPPORTED_EMBEDDING_MODELS, isHybridModel } from '../rag/models.js';
+import { SUPPORTED_EMBEDDING_MODELS } from '../rag/models.js';
 import type { EmbeddingModel } from '../rag/models.js';
-import { getPaths, ensureDirectories, getServerDir } from '../core/paths.js';
+import { getPaths, ensureDirectories } from '../core/paths.js';
 import fs from 'fs-extra';
 import path from 'node:path';
 import net from 'node:net';
 import { randomBytes } from 'node:crypto';
 import { execSync } from 'node:child_process';
 import { buildDashboardHtml } from './assets.js';
+import { generateAuthKey } from '../lib/auth.js';
+import {
+  createServer,
+  deleteRegisteredServer,
+  getServerInfo,
+  getServerLogTail,
+  listRegisteredServers,
+  reindexServer,
+  verifyServer,
+} from '../app/services/servers.js';
 
 const GUI_TOKEN_FILE = '.gui-token';
 
@@ -38,10 +44,6 @@ async function getOrCreateGuiToken(): Promise<string> {
   const token = generateGuiToken();
   await fs.writeFile(p, token, { mode: 0o600 });
   return token;
-}
-
-function generateAuthKey(): string {
-  return 'mcp_' + randomBytes(24).toString('hex');
 }
 
 function maskSecret(value: string, visible = 6): string {
@@ -122,10 +124,10 @@ function createApp(token: string) {
 
   // List servers + live status
   app.get('/api/servers', async (c) => {
-    const servers = await listServers();
+    const servers = await listRegisteredServers({ includeStatus: true });
     const enriched = [];
     for (const s of servers) {
-      const st = await serverManager.getStatus(s.slug);
+      const st = s.status || { running: false };
       enriched.push({
         ...maskServerMetadata(s),
         running: st.running,
@@ -151,42 +153,21 @@ function createApp(token: string) {
       return c.json({ error: 'server already exists' }, 409);
     } catch {}
 
-    let result;
-    try {
-      result = await ingestDocumentation(url, { maxChunks: 6000, maxPages: 80 });
-    } catch (e: any) {
-      return c.json({ error: 'ingestion failed: ' + (e.message || e) }, 400);
-    }
-
     let embeddingModel: EmbeddingModel = 'fuse';
     if (body.hybrid || body.embeddingModel) {
       const cand = body.embeddingModel || 'hybrid-bge-small';
       embeddingModel = (SUPPORTED_EMBEDDING_MODELS as string[]).includes(cand) ? (cand as EmbeddingModel) : 'hybrid-bge-small';
     }
 
-    const meta = await registerServer({
-      name,
-      slug,
-      sourceUrl: result.sourceUrl,
-      sourceType: result.sourceType,
-      ingestionVersion: '1.0.0',
-      embeddingModel,
-      chunkCount: result.stats.totalChunks,
-      ingestionStats: result.stats,
-      vectorIndexed: isHybridModel(embeddingModel),
-      authKey: generateAuthKey(),
-      desiredState: 'stopped',
-    });
-
     try {
-      const rag = await createRAGForServer(slug, embeddingModel);
-      await rag.indexChunks(result.chunks as any, { embeddingModel });
-      await (rag as any).close?.();
+      const created = await createServer({ name, url, embeddingModel, maxChunks: 6000, maxPages: 80 });
+      if (created.indexWarning) {
+        logger.warn(`GUI create: RAG indexing warning for ${slug}: ${created.indexWarning}`);
+      }
+      return c.json({ ok: true, slug, meta: maskServerMetadata(created.meta) });
     } catch (e: any) {
-      logger.warn(`GUI create: RAG indexing warning for ${slug}: ${e.message || e}`);
+      return c.json({ error: 'ingestion failed: ' + (e.message || e) }, 400);
     }
-
-    return c.json({ ok: true, slug, meta: maskServerMetadata(meta) });
   });
 
   // Start
@@ -211,44 +192,26 @@ function createApp(token: string) {
   app.post('/api/servers/:slug/reindex', async (c) => {
     const slug = c.req.param('slug');
     const body = await c.req.json().catch(() => ({}));
-    const meta = await getServerMetadata(slug);
-
-    let em = meta.embeddingModel as EmbeddingModel;
+    const info = await getServerInfo(slug);
+    let em = info.meta.embeddingModel as EmbeddingModel;
     if (body.hybrid) em = 'hybrid-bge-small';
     if (body.embeddingModel && (SUPPORTED_EMBEDDING_MODELS as string[]).includes(body.embeddingModel)) {
       em = body.embeddingModel as EmbeddingModel;
     }
 
-    const result = await ingestDocumentation(meta.sourceUrl, { maxChunks: 6000, maxPages: 80 });
-
-    const rag = await createRAGForServer(slug, em);
-    await rag.indexChunks(result.chunks as any, { embeddingModel: em });
-    await (rag as any).close?.();
-
-    await updateServerMetadata(slug, {
-      chunkCount: result.stats.totalChunks,
-      ingestionStats: result.stats,
-      embeddingModel: em,
-      vectorIndexed: isHybridModel(em),
-    });
-
-    return c.json({ ok: true, chunks: result.stats.totalChunks });
+    const result = await reindexServer({ slug, embeddingModel: em, maxChunks: 6000, maxPages: 80 });
+    return c.json({ ok: true, chunks: result.ingestion.stats.totalChunks });
   });
 
   // Verify (basic)
   app.get('/api/servers/:slug/verify', async (c) => {
     const slug = c.req.param('slug');
-    const meta = await getServerMetadata(slug);
-    const em = meta.embeddingModel as EmbeddingModel;
-    const rag = await createRAGForServer(slug, em);
-
-    const samples = ['overview', 'install', 'api'];
-    const out = [];
-    for (const q of samples) {
-      const hits = await rag.search(q, { limit: 2, mode: 'hybrid' });
-      out.push({ query: q, hits });
-    }
-    return c.json({ ok: true, samples: out, embeddingModel: em });
+    const report = await verifyServer(slug, ['overview', 'install', 'api']);
+    return c.json({
+      ok: true,
+      samples: report.samples.map((sample) => ({ query: sample.query, hits: sample.results })),
+      embeddingModel: report.embeddingModel,
+    });
   });
 
   // Playground search (uses RAG directly for demo)
@@ -271,7 +234,7 @@ function createApp(token: string) {
   // Delete
   app.delete('/api/servers/:slug', async (c) => {
     const slug = c.req.param('slug');
-    await deleteServer(slug, { removeData: true });
+    await deleteRegisteredServer(slug);
     return c.json({ ok: true });
   });
 
@@ -286,21 +249,14 @@ function createApp(token: string) {
   // Single server info + status
   app.get('/api/servers/:slug', async (c) => {
     const slug = c.req.param('slug');
-    const meta = await getServerMetadata(slug);
-    const st = await serverManager.getStatus(slug);
-    return c.json({ ...maskServerMetadata(meta), ...st });
+    const { meta, status } = await getServerInfo(slug);
+    return c.json({ ...maskServerMetadata(meta), ...status });
   });
 
   // Simple logs tail
   app.get('/api/servers/:slug/logs', async (c) => {
     const slug = c.req.param('slug');
-    const logPath = path.join(getServerDir(slug), 'host.log');
-    try {
-      const content = await fs.readFile(logPath, 'utf8');
-      return c.text(content.slice(-8000) || '(empty)');
-    } catch {
-      return c.text('(no host.log yet for this server)');
-    }
+    return c.text(await getServerLogTail(slug, 8000));
   });
 
   // Root UI

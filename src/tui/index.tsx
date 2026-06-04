@@ -27,6 +27,7 @@ import { serverManager, type ServerStatus } from '../process/manager.js';
 import { getServerDir } from '../core/paths.js';
 import { logger } from '../core/logger.js';
 import { VERSION } from '../core/version.js';
+import { reindexServer, verifyServer } from '../app/services/servers.js';
 
 // ── ANSI helpers ────────────────────────────────────────────────────────────
 
@@ -463,12 +464,10 @@ async function handleKey(key: string, state: TUIState): Promise<void> {
     setAction(state, `Verifying ${slug}…`);
     render(state);
     try {
-      const { createRAGForServer } = await import('../rag/store.js');
-      const meta = await getServerMetadata(slug);
-      const rag  = await createRAGForServer(slug, (meta as any).embeddingModel || 'fuse');
-      const res  = await rag.search('overview', { limit: 1 });
-      if (res.length > 0) {
-        setAction(state, `✓ Verify ok — top result: ${res[0].metadata.url || res[0].metadata.title || 'hit'}`);
+      const report = await verifyServer(slug, ['overview']);
+      const top = report.samples[0]?.results[0];
+      if (top) {
+        setAction(state, `✓ Verify ok — top result: ${top.metadata.url || top.metadata.title || 'hit'}`);
       } else {
         setAction(state, 'Verify: no results (index may be empty)', true);
       }
@@ -509,17 +508,15 @@ async function handleKey(key: string, state: TUIState): Promise<void> {
     setAction(state, `Re-indexing ${slug}… (this may take a while)`);
     render(state);
     try {
-      const { ingestDocumentation } = await import('../ingestion/pipeline.js');
-      const { createRAGForServer }  = await import('../rag/store.js');
-      const { updateServerMetadata } = await import('../core/registry.js');
       const meta = await getServerMetadata(slug);
       if (!meta.sourceUrl) throw new Error('No sourceUrl recorded — cannot reindex');
-      const result = await ingestDocumentation(meta.sourceUrl, { maxChunks: 6000, maxPages: 80 });
-      const rag    = await createRAGForServer(slug, (meta as any).embeddingModel || 'fuse');
-      await rag.indexChunks(result.chunks);
-      await rag.close?.();
-      await updateServerMetadata(slug, { chunkCount: result.stats.totalChunks, ingestionStats: result.stats });
-      setAction(state, `✓ Reindexed ${slug} — ${result.stats.totalChunks} chunks`);
+      const result = await reindexServer({
+        slug,
+        embeddingModel: (meta as any).embeddingModel || 'fuse',
+        maxChunks: 6000,
+        maxPages: 80,
+      });
+      setAction(state, `✓ Reindexed ${slug} — ${result.ingestion.stats.totalChunks} chunks`);
     } catch (e: any) {
       setAction(state, `Reindex failed: ${e?.message || e}`, true);
     }
@@ -533,6 +530,10 @@ async function handleKey(key: string, state: TUIState): Promise<void> {
 
 export async function launchTUI(): Promise<void> {
   const testMode = process.env.MCP_PORTAL_TUI_TEST_MODE === '1';
+
+  if (testMode) {
+    process.stdout.write('hoolix TUI\n');
+  }
 
   if (!testMode && (process.env.CI || !process.stdout.isTTY || !process.stdin.isTTY)) {
     console.log('hoolix TUI requires an interactive TTY. Use CLI commands instead: hoolix --help');

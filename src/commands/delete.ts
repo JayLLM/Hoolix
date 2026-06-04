@@ -1,5 +1,6 @@
 import { confirm, isCancel, cancel } from '@clack/prompts';
-import { getServerMetadata, deleteServer } from '../core/registry.js';
+import { getServerMetadata } from '../core/registry.js';
+import { deleteRegisteredServer } from '../app/services/servers.js';
 import { logger } from '../core/logger.js';
 import { printJson } from '../ui/format.js';
 
@@ -35,7 +36,7 @@ export async function cmdDelete(args: string[], json: boolean): Promise<void> {
     return;
   }
 
-  await deleteServer(slug);
+  await deleteRegisteredServer(slug);
   if (json) printJson({ ok: true, slug, deleted: true });
   else logger.success(`Deleted ${slug}`);
 }
