@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.1-beta.18] - 2026-06-04
+
 ### Fixed
 
 - **`release.yml` — `id-token: write` scoped to `publish-npm` job only** — previously granted at workflow level, giving every job (including binary builds on third-party matrix runners) unnecessary OIDC credentials. Now confined to the `publish-npm` job via per-job `permissions:`.
@@ -282,7 +284,8 @@ App currently hangs during github workflow. Will be investigated later.
 - Added optional hybrid RAG with lazy BGE embedding + RRF reranker behind `--hybrid` / `--embedding-model`.
 - Added one-command client wiring for Claude/Cursor/Windsurf/Continue/Cline/GrokBuild and `--json` scripting support.
 
-[Unreleased]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.17...HEAD
+[Unreleased]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.18...HEAD
+[0.0.1-beta.18]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.17...v0.0.1-beta.18
 [0.0.1-beta.17]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.16...v0.0.1-beta.17
 [0.0.1-beta.16]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.15...v0.0.1-beta.16
 [0.0.1-beta.15]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.14...v0.0.1-beta.15
