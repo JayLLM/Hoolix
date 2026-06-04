@@ -260,8 +260,8 @@ Users can drop custom `*.json` files into `~/.hoolix/templates/` (or override wi
 
 **Release flow:**
 1. `release.yml` → `prepare-release` (release-it → bump, CHANGELOG, tag, GitHub Release)
-2. `build-binaries` (matrix: linux-x64, linux-arm64, darwin-arm64, windows-x64)
-3. `publish-npm` (build + `npm publish --provenance`) — non-beta releases only
+2. `build-binaries` (matrix: linux-x64, linux-arm64, darwin-x64 [macos-13], darwin-arm64 [macos-14], windows-x64)
+3. `publish-npm` (build + `npm publish --provenance --tag latest|next`) — all releases; prerelease → `--tag next`
 4. `attach-release-assets` (SHA256SUMS + optional GPG .asc + release notes with install cmds)
 
 **Version file:** `src/core/version.ts` — `export const VERSION = "x.y.z"`. Must match `package.json`. Baked into binaries at `bun build --compile`.

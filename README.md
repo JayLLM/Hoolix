@@ -1,6 +1,6 @@
 # Hoolix
 
-**Hoolix is your MCP home base.** Turn documentation sites, `llms.txt`, GitHub repositories, templates, and private knowledge sources into secure, source-grounded MCP servers your agents can trust.
+**Hoolix is your MCP home base.** Turn documentation sites, `llms.txt`, GitHub repositories, MCP server templates, and private knowledge sources into secure, source-grounded MCP servers your agents can trust.
 
 [![npm version](https://img.shields.io/npm/v/hoolix?color=blue)](https://www.npmjs.com/package/hoolix)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -9,7 +9,7 @@
 
 > Forge docs, repos, and internal knowledge into production-grade MCP servers with a beautiful TUI, a scriptable CLI, and a lightweight GUI.
 
-Hoolix helps developers and teams create high-quality RAG-backed MCP servers from real sources. It keeps every answer grounded with source URLs, supports Streamable HTTP and stdio transports, and gives you the daily tools you need: create, verify, start, connect, reindex, monitor, export, and share.
+Hoolix helps developers and teams create high-quality RAG-backed MCP servers from real sources, and install curated MCP server templates (filesystem, GitHub, Postgres, Brave Search, Slack, and more) in a single command. Every answer is grounded with source URLs, transports support Streamable HTTP and stdio, and you get the full daily toolkit: create, verify, start, connect, reindex, monitor, bundle, export, and share.
 
 ## Why Hoolix?
 
@@ -19,28 +19,71 @@ Agents are only as useful as the context they can reliably reach. Copy-pasted do
 | --- | --- |
 | Fast first run | `hoolix` opens the TUI; `hoolix trial` creates a demo server in one command |
 | Trustworthy retrieval | Source-grounded search, page reads, table of contents, and `verify` health checks |
-| Flexible source models | Single URLs, multi-source definitions, GitHub repos, private docs, templates, and custom source plugins |
-| Real MCP hosting | Authenticated Streamable HTTP plus stdio for local client workflows |
-| Team workflows | Usage stats, audit logs, sanitized exports, and importable bundles |
-| Power-user automation | `--json` across machine-friendly commands, scheduled reindexing, token budgets, and scriptable lifecycle commands |
+| Popular MCP server templates | `hoolix install filesystem`, `github-api`, `postgres`, `brave-search`, `slack`, and 9 more |
+| Flexible source models | Single URLs, multi-source definitions, GitHub repos, private docs, and custom source plugins |
+| Real MCP hosting | Authenticated Streamable HTTP plus stdio; proxy mode wraps any stdio server behind HTTP |
+| Team workflows | Usage stats, audit logs, multi-server bundles, and sanitized exports |
+| Power-user automation | `--json` across machine-friendly commands, shell completions, scheduled reindexing, and scriptable lifecycle |
 
 ## Installation
 
-Prebuilt binaries are the recommended path. They are fast, self-contained, and do not require Node, Bun, `tsx`, or source files after installation.
-
-### macOS / Linux
+### Recommended: npm (provenance-verified)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/JayLLM/Hoolix/main/install.sh | bash
+npm install -g hoolix
 ```
 
-### Windows PowerShell
+This installs the published npm package with [npm provenance](https://docs.npmjs.com/generating-provenance-statements) — the cryptographic chain from source to package is public and verifiable.
 
-```powershell
-iex (irm https://raw.githubusercontent.com/JayLLM/Hoolix/main/install.ps1)
+```bash
+hoolix doctor     # verify the installation
+hoolix            # open the TUI
 ```
 
-The installer verifies the binary and prints PATH guidance if your current terminal needs to be refreshed.
+**Beta / pre-release:**
+```bash
+npm install -g hoolix@next
+```
+
+### Shell Completions (optional but great)
+
+After installing, add tab-completion for your shell:
+
+```bash
+# bash  — add to ~/.bashrc
+eval "$(hoolix completion bash)"
+
+# zsh   — add to ~/.zshrc
+eval "$(hoolix completion zsh)"
+
+# fish  — add to ~/.config/fish/config.fish
+hoolix completion fish | source
+
+# PowerShell — add to $PROFILE
+hoolix completion powershell | Invoke-Expression
+```
+
+### Standalone Binary (Linux / macOS / Windows)
+
+Self-contained binaries require no Node.js, npm, or source files:
+
+```bash
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/JayLLM/hoolix/main/install.sh | bash
+
+# Windows PowerShell
+iwr -useb https://raw.githubusercontent.com/JayLLM/hoolix/main/install.ps1 | iex
+```
+
+Binaries include SHA-256 checksums for verification. Download `SHA256SUMS` from [GitHub Releases](https://github.com/JayLLM/hoolix/releases) and run:
+
+```bash
+# Linux
+sha256sum --check SHA256SUMS
+
+# macOS
+shasum -a 256 -c SHA256SUMS
+```
 
 ### Try Without Installing
 
@@ -52,37 +95,52 @@ This is the easiest way to prove the flow on a new machine or in a demo. The ful
 
 ## Quick Start
 
-### 1. Open The TUI
+### 1. Open the TUI
 
 ```bash
 hoolix
 ```
 
-Running `hoolix` with no arguments opens the terminal dashboard. From there you can create servers, start or stop them, verify retrieval quality, copy client configs, launch template flows, and inspect recent logs. It is the friendliest way to learn the product.
+Running `hoolix` with no arguments opens the terminal dashboard. From there you can create servers, start or stop them, verify retrieval quality, copy client configs, launch template flows, and inspect recent logs.
 
-If your terminal is non-interactive, Hoolix gracefully falls back to CLI help.
+### 2. Install an MCP Server Template
 
-### 2. Create A Trial Server
-
-```bash
-hoolix trial
-hoolix verify hoolix-trial
-hoolix start hoolix-trial
-```
-
-`trial` creates a public demo server from known-good sources, so you can test MCP tools before choosing your own docs.
-
-### 3. Connect Your MCP Client
+Templates are curated, one-command installs for common tools:
 
 ```bash
-hoolix connect hoolix-trial --client cursor
+hoolix install filesystem /Users/you/projects --yes
+hoolix install github-api --yes          # prompts for GITHUB_TOKEN
+hoolix install brave-search --yes        # prompts for BRAVE_API_KEY
+hoolix install postgres --credential databaseUrl=postgresql://... --yes
+hoolix install slack --yes               # prompts for bot token
+hoolix install memory --yes
 ```
 
-Supported client targets include Cursor, Claude Desktop, Windsurf, Continue, Cline, Grok Build, and generic JSON output. `connect` creates backups before editing client config files and prints the next step for your client.
+Browse all 14 official templates:
 
-### 4. Ask Your Agent
+```bash
+hoolix templates list
+hoolix templates info brave-search
+```
 
-Try:
+### 3. Create a Docs RAG Server
+
+```bash
+hoolix create "React Docs" --url https://react.dev/llms.txt --yes
+hoolix verify react-docs
+hoolix start react-docs
+```
+
+### 4. Connect Your MCP Client
+
+```bash
+hoolix connect react-docs --client cursor
+hoolix connect my-github --client claude
+```
+
+Supported client targets include Cursor, Claude Desktop, Claude Code, VS Code, Windsurf, Continue, Cline, Grok Build, and generic JSON output. `connect` creates backups before editing client config files.
+
+### 5. Ask Your Agent
 
 ```text
 Use search_documentation to find installation instructions, then cite the source URL.
@@ -92,19 +150,22 @@ Every Hoolix search/read result includes grounding URLs so the agent can show wh
 
 ## Create Servers
 
-### Single Source
+### Template (Recommended Starting Point)
 
-Old syntax remains fully supported:
+```bash
+hoolix templates list
+hoolix create "Brave Search" --template brave-search --yes
+# or shorthand:
+hoolix install brave-search --yes
+```
+
+### Single Source
 
 ```bash
 hoolix create "React Docs" --url https://react.dev/llms.txt --yes
 ```
 
-Use `--url` for a single documentation URL, `llms.txt`, `llms-full.txt`, GitHub URL, or regular docs page.
-
 ### Multi-Source
-
-Use additive `--source` flags when one MCP server should combine multiple knowledge bases:
 
 ```bash
 hoolix create "Frontend Stack" \
@@ -113,21 +174,7 @@ hoolix create "Frontend Stack" \
   --yes
 ```
 
-Each source is stored in the server definition and preserved through reindex, verify, export, import, TUI, and GUI views.
-
-### Template-Backed
-
-Templates are curated starting points for common MCP servers:
-
-```bash
-hoolix templates list
-hoolix templates info terraform-aws-docs
-hoolix create "Terraform AWS" --template terraform-aws-docs --yes
-```
-
-Templates can still accept normal inputs such as `--url`, `--header`, `--cookie`, `--hybrid`, and schedules when the template supports them.
-
-### Private Or Authenticated Sources
+### Private or Authenticated Sources
 
 ```bash
 hoolix create "Private Docs" \
@@ -137,19 +184,16 @@ hoolix create "Private Docs" \
   --yes
 ```
 
-For private GitHub repositories, set `GITHUB_TOKEN` before creating or reindexing.
-
 ## Core Concepts
 
 | Concept | Meaning |
 | --- | --- |
 | Server | A named MCP server with its own slug, index, auth key, audit log, stats, and lifecycle |
-| Source | A piece of knowledge to ingest, such as `docs:<url>`, `github:owner/repo`, `llms:<url>`, `web:<url>`, or `custom:<provider>:<value>` |
-| Server Definition | The validated, portable model that records sources, template backing, auth hints, schedules, and options |
-| Template | An official catalog entry that creates a known-good server shape |
+| Source | A piece of knowledge to ingest: `docs:`, `github:`, `llms:`, `web:`, or `custom:` |
+| Template | An official catalog entry — either a `docs-rag` (knowledge indexing) or `mcp-server` (config-only) server shape |
 | Transport | How clients talk to the server: authenticated Streamable HTTP or local stdio |
-| Verification | Hoolix health checks for chunks, samples, grounding, source status, and retrieval quality |
-| Bundle | A `.hoolix.json` export that can be imported elsewhere, optionally stripped of secrets for teams |
+| Proxy mode | `hoolix start <slug> --proxy` wraps any stdio mcp-server behind authenticated HTTP |
+| Bundle | A `.hoolix.json` export that can be imported elsewhere, stripped of secrets for teams |
 
 ## Common Commands
 
@@ -157,24 +201,27 @@ For private GitHub repositories, set `GITHUB_TOKEN` before creating or reindexin
 | --- | --- |
 | `hoolix` | Open the TUI dashboard |
 | `hoolix trial` | Create a one-click demo server |
+| `hoolix install <template>` | Install an official MCP server template in one command |
+| `hoolix templates list` | Browse all 14 official templates |
 | `hoolix create "Name" --url <url>` | Create from one source |
 | `hoolix create "Name" --source docs:<url> --source github:owner/repo` | Create from multiple sources |
-| `hoolix create "Name" --template <id>` | Create from an official template |
-| `hoolix templates list` | Browse official templates |
-| `hoolix list` / `hoolix info <slug>` | Inspect registered servers |
+| `hoolix list` | Inspect registered servers with live status |
 | `hoolix verify <slug>` | Check source, index, grounding, and retrieval health |
 | `hoolix start <slug>` | Start authenticated Streamable HTTP MCP hosting |
-| `hoolix start <slug> --transport stdio --json` | Print stdio MCP launch config |
+| `hoolix start <slug> --proxy` | Proxy an mcp-server over authenticated HTTP |
 | `hoolix connect <slug> --client cursor` | Wire the server into an MCP client |
-| `hoolix reindex <slug>` | Incrementally refresh sources and rebuild the index |
-| `hoolix reindex <slug> --schedule daily` | Enable scheduled auto-reindex metadata |
-| `hoolix reindex --due --json` | Run servers whose schedule is due |
-| `hoolix stats <slug>` | Show usage analytics and top queries |
-| `hoolix audit <slug>` | Query raw audit entries |
+| `hoolix secrets set <slug> <key>` | Store or rotate a credential (masked, 0600) |
+| `hoolix reindex <slug>` | Refresh sources and rebuild the index |
+| `hoolix bundle export <slugs…>` | Export multiple servers into one bundle |
+| `hoolix bundle import <file>` | Import a multi-server bundle |
+| `hoolix completion bash\|zsh\|fish\|powershell` | Generate shell tab-completion |
+| `hoolix stats <slug>` | Usage analytics and top queries |
+| `hoolix audit <slug>` | Raw audit entries for security review |
 | `hoolix export <slug> --team --strip-key` | Create a team-safe bundle |
 | `hoolix import --file server.hoolix.json` | Import a bundle |
 | `hoolix gui` | Open the local web dashboard |
-| `hoolix doctor` | Diagnose install, paths, config, runtime, plugins, and source health |
+| `hoolix doctor` | Diagnose install, paths, config, runtime, and proxy status |
+| `hoolix update` | Self-update the binary (SHA-256 verified) |
 
 Machine-friendly commands support `--json` so Hoolix works cleanly in scripts and CI.
 
@@ -188,7 +235,7 @@ Every hosted Hoolix server exposes:
 | `read_documentation_page` | Read a grounded page or chunk by URL/title |
 | `get_table_of_contents` | Explore indexed structure and source sections |
 
-Tool responses include source URLs. Search tools accept token-aware options such as `maxTokens` and `contextWindowTokens` so clients can request appropriately sized context.
+Tool responses include source URLs. Search tools accept token-aware options such as `maxTokens` and `contextWindowTokens`.
 
 ## Transports
 
@@ -206,17 +253,23 @@ HTTP hosting is authenticated with a per-server bearer key and includes rate lim
 hoolix start react-docs --transport stdio --json
 ```
 
-Use stdio for clients that prefer local process transports. The JSON output is designed to be copied into client configuration or consumed by automation.
+Use stdio for clients that prefer local process transports.
 
-## TUI And GUI
+### Proxy Mode (mcp-server templates)
+
+```bash
+hoolix start my-github --proxy
+```
+
+Proxy mode wraps any stdio mcp-server behind an authenticated Hono HTTP endpoint, with auto-restart on crash (exponential backoff), 30-second health monitoring, and SSE event wrapping. The `hoolix list` column shows `proxy:PORT` for running proxy servers.
+
+## TUI and GUI
 
 - `hoolix` launches the TUI by default.
 - `hoolix gui` launches a token-protected local dashboard.
 - CLI, TUI, and GUI share the same app services, definitions, catalog, verification, analytics, and server lifecycle logic.
 
-Use the TUI for fast daily work, the CLI for scripts and repeatability, and the GUI for visual management, catalog browsing, stats, and playground testing.
-
-## Reliability And Security
+## Reliability and Security
 
 - Per-server auth keys with `hoolix rotate`
 - Tool timeouts and response guards
@@ -227,10 +280,22 @@ Use the TUI for fast daily work, the CLI for scripts and repeatability, and the 
 - Private source headers and cookies
 - Team-safe exports with `--strip-key`
 - `doctor` and `verify` health cards for fast diagnosis
+- SHA-256 checksum verification on binary updates and installs
+- Optional GPG `.asc` signatures on GitHub Release assets
+
+## Multi-Server Bundles
+
+Share entire setups across machines or teammates:
+
+```bash
+# Export multiple servers into one file (credentials are never exported)
+hoolix bundle export my-docs my-github my-db --output team.hoolix.json
+
+# Import on another machine (prints hoolix secrets set instructions)
+hoolix bundle import team.hoolix.json --yes
+```
 
 ## Custom Source Plugins
-
-Hoolix can discover simple source plugin manifests from your data directory or `HOOLIX_SOURCE_PLUGIN_DIR`.
 
 ```bash
 hoolix create "Internal Handbook" \
@@ -238,7 +303,7 @@ hoolix create "Internal Handbook" \
   --yes
 ```
 
-Plugins map custom source identifiers to supported source kinds such as docs, web, llms, or GitHub. This keeps Hoolix extensible without forcing every team source into core.
+Plugins map custom source identifiers to supported source kinds. Place manifests in `~/.hoolix/templates/` or set `HOOLIX_SOURCE_PLUGIN_DIR`.
 
 ## Examples
 
@@ -246,11 +311,18 @@ Plugins map custom source identifiers to supported source kinds such as docs, we
 # TUI-first daily workflow
 hoolix
 
+# Install MCP server templates
+hoolix install filesystem /Users/you/projects --yes
+hoolix install github-api --yes
+hoolix install brave-search --yes
+hoolix install postgres --credential databaseUrl=postgresql://localhost/mydb --yes
+hoolix install memory --yes
+
 # One-click first run
 hoolix trial
 hoolix connect hoolix-trial --client cursor
 
-# Single-source docs server
+# Docs RAG server from llms.txt
 hoolix create "Astro Docs" --url https://docs.astro.build/llms.txt --yes
 hoolix verify astro-docs
 
@@ -258,32 +330,23 @@ hoolix verify astro-docs
 hoolix create "Company Platform" \
   --source docs:https://docs.example.com/llms.txt \
   --source github:example/platform \
-  --source web:https://status.example.com/docs \
   --yes
 
-# Template-backed server
-hoolix create "Hoolix Docs" --template hoolix-docs --yes
+# Proxy an mcp-server over HTTP
+hoolix start my-github --proxy
 
-# Private docs
-hoolix create "Private API" \
-  --url https://docs.example.com/private/llms.txt \
-  --header "Authorization: Bearer $DOCS_TOKEN" \
-  --yes
+# Connect to clients
+hoolix connect my-docs --client cursor
+hoolix connect my-github --client claude-code --yes
+
+# Multi-server bundle for teammates
+hoolix bundle export my-docs my-github --output team.hoolix.json --team
+hoolix bundle import team.hoolix.json --yes
 
 # Scheduled maintenance
 hoolix reindex company-platform --schedule daily --yes
 hoolix reindex --due --json
-
-# Team-safe sharing
-hoolix export company-platform --team --strip-key --file company-platform.hoolix.json
-hoolix import --file company-platform.hoolix.json --slug company-platform-copy --yes
 ```
-
-## Future Vision
-
-Hoolix is growing toward the definitive application for MCP operations: official server catalogs, richer team libraries, deeper plugin hooks, managed deployment targets, policy-aware source access, and a shared experience across CLI, TUI, GUI, and hosted workflows.
-
-The north star is simple: when a team asks, "How do we make this knowledge available to agents safely?", the answer should be Hoolix.
 
 ## Development
 
@@ -322,9 +385,11 @@ See [AGENTS.md](./AGENTS.md) for architecture rules, contribution expectations, 
 
 Contributions are welcome. Please open an issue for substantial changes, keep PRs focused, run tests, and update documentation alongside behavior changes.
 
+See [CONTRIBUTING.md](./CONTRIBUTING.md) and [AGENTS.md](./AGENTS.md).
+
 ## Releasing
 
-Release automation uses `release-it` and GitHub Actions. See [docs/RELEASING.md](./docs/RELEASING.md) for the release checklist and binary publishing workflow.
+Release automation uses `release-it` and GitHub Actions. See [docs/RELEASING.md](./docs/RELEASING.md) for the full release checklist, npm publish flow, binary matrix, and free signing process.
 
 ## License
 
@@ -332,6 +397,6 @@ MIT © Hoolix contributors
 
 ---
 
-**Links**: [GitHub](https://github.com/JayLLM/Hoolix) · [Issues](https://github.com/JayLLM/Hoolix/issues) · [Releases](https://github.com/JayLLM/Hoolix/releases)
+**Links**: [npm](https://www.npmjs.com/package/hoolix) · [GitHub](https://github.com/JayLLM/hoolix) · [Docs](https://jayllm.github.io/hoolix/) · [Issues](https://github.com/JayLLM/hoolix/issues) · [Releases](https://github.com/JayLLM/hoolix/releases)
 
 Made for developers who want agents to find the right paragraph, cite the right URL, and get back to work.

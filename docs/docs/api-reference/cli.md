@@ -5,7 +5,7 @@ sidebar_position: 1
 
 # CLI Reference
 
-Hoolix uses a small hand-rolled CLI dispatcher. The default command opens the TUI, and machine-friendly commands support `--json`.
+Hoolix uses a hand-rolled CLI dispatcher. The default command opens the TUI, and machine-friendly commands support `--json`.
 
 ## Global
 
@@ -21,7 +21,7 @@ hoolix doctor --json
 | `hoolix` | Open the TUI dashboard |
 | `hoolix --help` | Print command help |
 | `hoolix --version` | Print the current version |
-| `hoolix doctor [--json]` | Diagnose runtime, paths, config, registry, process manager, plugins, and source health |
+| `hoolix doctor [--json]` | Diagnose runtime, paths, config, registry, process manager, plugins, and proxy status |
 
 ## trial
 
@@ -31,13 +31,14 @@ hoolix trial [--json]
 
 Creates a one-click public demo server. Use it for first-run testing, `npx` demos, or confirming client connection flow.
 
-## create
+## create / install
 
 ```bash
 hoolix create [name] [--url <url>] [--source <kind:value>] [--template <id>] [options]
+hoolix install <template-id> [inputs…] [--name <name>] [--yes] [--json]
 ```
 
-Creates a server, ingests sources, builds the RAG index, writes metadata, and registers the server.
+`create` creates a server from `--url`, `--source`, or `--template`. `install` is sugar for `create --template` that accepts positional inputs and prompts for credentials interactively.
 
 ### Common Options
 
@@ -49,8 +50,9 @@ Creates a server, ingests sources, builds the RAG index, writes metadata, and re
 | `--header "Name: Value"` | Add a private source request header |
 | `--cookie "name=value"` | Add a private source cookie |
 | `--hybrid` | Enable optional hybrid semantic + keyword indexing |
-| `--embedding-model <model>` | Select an embedding model supported by the hybrid RAG layer |
-| `--schedule hourly|daily|off` | Store auto-reindex schedule metadata |
+| `--embedding-model <model>` | Select an embedding model for hybrid RAG |
+| `--schedule hourly\|daily\|off` | Store auto-reindex schedule metadata |
+| `--credential <key=value>` | Set a credential inline (mcp-server templates) |
 | `--yes` | Skip interactive confirmation |
 | `--json` | Emit a machine-readable result |
 
@@ -67,10 +69,14 @@ hoolix create "Frontend Stack" \
 hoolix create "Private API" \
   --url https://docs.example.com/llms.txt \
   --header "Authorization: Bearer $DOCS_TOKEN" \
-  --cookie "session=$DOCS_SESSION" \
   --yes
 
-hoolix create "Terraform AWS" --template terraform-aws-docs --yes
+# Template-backed servers
+hoolix install filesystem /Users/you/projects --yes
+hoolix install github-api --yes
+hoolix install brave-search --yes
+hoolix install postgres --credential databaseUrl=postgresql://localhost/mydb --yes
+hoolix install memory --yes
 ```
 
 ## templates
@@ -80,7 +86,7 @@ hoolix templates list [--json]
 hoolix templates info <id> [--json]
 ```
 
-Lists and inspects official catalog templates. Templates are curated server definitions with source presets and optional inputs.
+Lists and inspects official catalog templates (14 total). Templates are typed as `docs-rag` (ingests + indexes knowledge) or `mcp-server` (config-only, spawns via stdio or proxy).
 
 ## list / info
 
@@ -89,7 +95,7 @@ hoolix list [--json]
 hoolix info <slug> [--json]
 ```
 
-`list` shows registered servers. `info` shows metadata, sources, template backing, chunk count, index mode, live status, masked auth status, validation warnings, and reindex hints.
+`list` shows registered servers with live status (including `proxy:PORT` for running proxy servers). `info` shows metadata, sources, template backing, chunk count, index mode, credentials, and reindex hints.
 
 ## verify
 
@@ -97,38 +103,57 @@ hoolix info <slug> [--json]
 hoolix verify <slug> [--eval] [--json]
 ```
 
-Checks server health:
-
-- Registry and chunk count consistency.
-- Source definition and migration state.
-- Searchability and sample searches.
-- Grounding URL coverage.
-- Source provenance.
-- Optional hybrid evaluation and mode comparison.
-
-Use `verify` before connecting a client and after major source changes.
+Checks server health: registry and chunk count consistency, source definitions, searchability, grounding URL coverage, and source provenance. Use `verify` before connecting a client and after major source changes.
 
 ## start / stop
 
 ```bash
-hoolix start <slug> [--port <n>] [--transport http|stdio] [--json]
+hoolix start <slug> [--port <n>] [--transport http|stdio] [--proxy] [--json]
 hoolix stop <slug> [--json]
 ```
 
 `start` launches the MCP host.
 
-- `--transport http` starts authenticated Streamable HTTP.
-- `--transport stdio --json` prints a stdio launch config for clients that spawn local commands.
+| Flag | Description |
+| --- | --- |
+| `--transport http` | Authenticated Streamable HTTP (default for docs-rag) |
+| `--transport stdio --json` | Print a stdio launch config |
+| `--proxy` | Wrap a stdio mcp-server behind authenticated HTTP (auto-restart, health monitor) |
 
 HTTP hosts include per-server auth, timeouts, persistent rate limiting, response guards, audit logging, and stats collection.
+
+**Proxy mode** (`--proxy`) also supports SSE: when the client sends `Accept: text/event-stream`, the JSON-RPC response is wrapped as an SSE `data:` event.
 
 ## connect
 
 ```bash
-hoolix connect <slug> [--client claude|cursor|windsurf|continue|cline|grokbuild|generic] [--project] [--yes] [--json] [--port <n>]
+hoolix connect <slug> [--client <target>] [--project] [--dry-run] [--yes] [--json] [--port <n>]
 ```
 
-Writes or prints client configuration for the selected server. Supported clients get backup + merge behavior. Generic mode emits JSON only.
+Writes or prints client configuration for the selected server.
+
+Supported clients: `claude`, `claude-code`, `cursor`, `vscode`, `windsurf`, `continue`, `cline`, `grokbuild`, `generic`.
+
+Supported clients get backup + merge behavior. Generic mode emits JSON only. Use `--dry-run` to preview without writing.
+
+## clients
+
+```bash
+hoolix clients list [--json]
+hoolix client status [--json]
+```
+
+`clients list` shows all supported MCP clients with detection status and config file paths. `client status` shows which Hoolix servers are wired into each detected client.
+
+## secrets
+
+```bash
+hoolix secrets list <slug> [--json]
+hoolix secrets set <slug> <key> [value] [--yes] [--json]
+hoolix secrets remove <slug> <key> [--yes] [--json]
+```
+
+Manages credentials for `mcp-server` kind templates. Credentials are stored in a per-server `credentials.json` (mode 0600). Values are never logged or exported. If `value` is omitted from `secrets set`, the CLI prompts with a masked input.
 
 ## reindex
 
@@ -143,7 +168,7 @@ Refreshes source content and rebuilds the index.
 | --- | --- |
 | `--force` | Re-fetch and rebuild even when fingerprints look unchanged |
 | `--no-incremental` | Disable incremental skip behavior for this run |
-| `--schedule hourly|daily|off` | Update schedule metadata |
+| `--schedule hourly\|daily\|off` | Update schedule metadata |
 | `--due` | Reindex every registered server whose schedule is due |
 
 ## stats / audit
@@ -170,7 +195,7 @@ hoolix export <slug> [--file <path>] [--team] [--strip-key] [--include-key] [--i
 hoolix import --file <path> [--slug <slug>] [--yes] [--json]
 ```
 
-Exports and imports `.hoolix.json` bundles.
+Exports and imports single-server `.hoolix.json` bundles.
 
 | Option | Description |
 | --- | --- |
@@ -178,6 +203,34 @@ Exports and imports `.hoolix.json` bundles.
 | `--strip-key` | Remove the server auth key from the bundle |
 | `--include-key` | Include the server auth key for private backups |
 | `--include-source-auth` | Include private source headers/cookies; use carefully |
+
+## bundle
+
+```bash
+hoolix bundle export [slugs…] [--all] [--output <file>] [--team] [--json]
+hoolix bundle import <file> [--yes] [--json]
+```
+
+Exports or imports multiple servers in a single `{ version: 1, type: 'multi-server-bundle' }` file. Credentials are **never** exported. After `bundle import`, the CLI prints `hoolix secrets set` instructions for each mcp-server that requires credentials.
+
+## completion
+
+```bash
+hoolix completion bash
+hoolix completion zsh
+hoolix completion fish
+hoolix completion powershell
+```
+
+Outputs a ready-to-source tab-completion script. The script dynamically resolves slugs (via `hoolix list --json`) and template IDs (via `hoolix templates list --json`) at tab-time.
+
+Setup examples:
+```bash
+eval "$(hoolix completion bash)"          # bash: add to ~/.bashrc
+eval "$(hoolix completion zsh)"           # zsh: add to ~/.zshrc
+hoolix completion fish | source           # fish: add to config.fish
+hoolix completion powershell | Invoke-Expression  # PowerShell: add to $PROFILE
+```
 
 ## gui
 
@@ -191,11 +244,11 @@ Launches the token-protected local dashboard for visual management, templates, t
 
 ```bash
 hoolix delete <slug> [--yes] [--json]
-hoolix update [--json]
+hoolix update [--no-verify] [--json]
 hoolix uninstall [--yes] [--json]
 ```
 
-`delete` removes one server. `update` updates compiled installs. `uninstall` removes Hoolix data and installed binary/PATH entries where supported.
+`delete` removes one server. `update` downloads and applies the latest binary (SHA-256 verified; `--no-verify` skips). When installed via npm, `update` prints `npm update -g hoolix` instead. `uninstall` removes Hoolix data and the installed binary/PATH entries where supported.
 
 ## Source Syntax
 
@@ -215,6 +268,7 @@ Use `--json` for automation. JSON modes avoid interactive prompts where possible
 
 ## See Also
 
+- [Installation](../getting-started/installation)
 - [Creating Servers](../guides/creating-servers)
 - [Connecting Clients](../guides/connecting-clients)
 - [Reindexing and Verify](../guides/reindexing-and-verify)

@@ -5,75 +5,114 @@ sidebar_position: 1
 
 # Installation
 
-Hoolix can be installed as a prebuilt native binary (recommended) or run through npm / bun for quick trials.
+Hoolix can be installed as an npm global package (recommended), a prebuilt native binary, or run ephemerally with `npx`.
 
-## Recommended: Prebuilt Binary (Windows, macOS, Linux)
+## Recommended: npm
 
-Use the official installers. They download the latest matching release asset, place the binary in a user-writable location, and update PATH where possible.
-
-During beta, `latest` includes prerelease builds such as `v0.0.1-beta.0`. Use `-Stable` / `--stable` to ignore prereleases once stable releases exist.
-
-```powershell
-# Windows (PowerShell)
-irm https://raw.githubusercontent.com/JayLLM/hoolix/main/install.ps1 | iex
-
-# Windows with options
-irm https://raw.githubusercontent.com/JayLLM/hoolix/main/install.ps1 -OutFile install.ps1
-.\install.ps1 -Version v0.0.1-beta.0
-.\install.ps1 -Stable
+```bash
+npm install -g hoolix
 ```
+
+The npm package is published with [npm provenance](https://docs.npmjs.com/generating-provenance-statements) — the cryptographic chain from source code to published package is publicly verifiable on npmjs.com.
+
+**Beta / pre-release:**
+```bash
+npm install -g hoolix@next
+```
+
+After install, verify and open the TUI:
+```bash
+hoolix doctor
+hoolix
+```
+
+## Shell Completions (optional but great)
+
+After installing, add tab-completion for your shell:
+
+```bash
+# bash  — add to ~/.bashrc
+eval "$(hoolix completion bash)"
+
+# zsh   — add to ~/.zshrc
+eval "$(hoolix completion zsh)"
+
+# fish  — add to ~/.config/fish/config.fish
+hoolix completion fish | source
+
+# PowerShell — add to $PROFILE
+hoolix completion powershell | Invoke-Expression
+```
+
+## Alternative: Standalone Binary
+
+Self-contained binaries include the Bun runtime. No Node.js or npm required on the target machine.
 
 ```bash
 # macOS / Linux
 curl -fsSL https://raw.githubusercontent.com/JayLLM/hoolix/main/install.sh | bash
 
-# macOS / Linux with options
-curl -fsSL https://raw.githubusercontent.com/JayLLM/hoolix/main/install.sh | bash -s -- --version v0.0.1-beta.0
-curl -fsSL https://raw.githubusercontent.com/JayLLM/hoolix/main/install.sh | bash -s -- --stable
+# Windows PowerShell
+iwr -useb https://raw.githubusercontent.com/JayLLM/hoolix/main/install.ps1 | iex
 ```
 
-After install, verify:
+The installer:
+- Detects OS and architecture automatically.
+- Downloads the matching binary from GitHub Releases.
+- Verifies the SHA-256 checksum against `SHA256SUMS`.
+- Adds the binary to your PATH.
 
+**Manual checksum verification:**
 ```bash
-hoolix --version
-hoolix doctor
+# Linux
+sha256sum --check SHA256SUMS
+
+# macOS
+shasum -a 256 -c SHA256SUMS
 ```
 
-## Alternative: npm / bun / bunx (no global binary)
+Download `SHA256SUMS` from [GitHub Releases](https://github.com/JayLLM/hoolix/releases).
+
+## One-Off / Try Without Installing
 
 ```bash
-# One-click demo without installing
 npx hoolix trial
-bunx hoolix trial
-
-# Global via npm or bun
-npm install -g hoolix
-bun install -g hoolix
 ```
 
-For daily use, the prebuilt binary is still the best path because `hoolix start <slug>` and the default TUI work without needing source files or a runtime.
+Great for demos and quick evaluations. For daily use, the npm global install is the better path.
 
-## From Source (developers)
+## From Source (Developers)
 
 ```bash
 git clone https://github.com/JayLLM/hoolix.git
 cd hoolix
 bun install
-bun run build
+bun run dev     # runs from source via tsx
 ```
 
-See [Contributing](../contributing/development-setup) for full dev setup including binary builds.
+To build a native binary locally:
+```bash
+bun run build:binary
+./dist-bin/hoolix doctor
+```
+
+See [Contributing](../contributing/development-setup) for full dev setup.
 
 ## Post-Install Verification
 
 ```bash
-hoolix doctor --json   # machine readable
+hoolix doctor          # checks runtime, paths, config, templates, and proxy status
+hoolix doctor --json   # machine-readable output
 hoolix --help
-hoolix
+hoolix                 # opens the TUI
 ```
 
 :::tip
-The first `create` or `trial` downloads source content and may take 10-120 seconds depending on site size. Subsequent starts are fast.
+Run `hoolix doctor` any time you want to confirm the installation, check data paths, or see which servers are currently running.
+:::
+
+:::info
+The first `hoolix install <template>` or `hoolix create` downloads source content. Subsequent starts are fast because the index is cached locally.
 :::
 
 ## See Also

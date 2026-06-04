@@ -1,117 +1,127 @@
-# Releasing hoolix
+# Releasing Hoolix
 
 This document describes how to cut new releases (including betas) for hoolix.
 
-We use [`release-it`](https://github.com/release-it/release-it) for versioning, changelog updates, tagging, and GitHub Releases. Binaries are built and attached via GitHub Actions.
+We use [`release-it`](https://github.com/release-it/release-it) for versioning, changelog updates, tagging, and GitHub Releases. Binaries are built via GitHub Actions and npm is published with provenance.
 
 ## Prerequisites
-- Write access to the repo (for tags and releases).
-- `GITHUB_TOKEN` is automatically available in Actions; for local releases you may need a personal access token with `repo` scope (or use `gh auth login` + release-it github plugin config).
-- Bun installed (for scripts and builds).
 
-## Local Release (Recommended for most cases)
+| Secret | Purpose |
+|---|---|
+| `GITHUB_TOKEN` | Auto-injected by Actions — write access for tag + release |
+| `NPM_TOKEN` | npm publish — add to repo Settings → Secrets → Actions |
+| `GPG_PRIVATE_KEY` | (Optional) GPG key for `.asc` detached signatures |
+| `GPG_PASSPHRASE` | (Optional) Passphrase for the GPG key |
 
-1. Make sure your working directory is clean (`git status`).
-2. Update `CHANGELOG.md` under the `[Unreleased]` section with the changes for this release (following Keep a Changelog style). Commit these changes if needed.
-3. Run the release command:
+## CI / Automated Release via GitHub Actions (Recommended)
 
-   **Normal release (patch by default, or specify):**
-   ```bash
-   npm run release          # uses release-it (interactive prompt for increment if needed)
-   # or non-interactive
-   npx release-it --increment=patch
-   ```
+1. Go to the repo → **Actions → Release → Run workflow**.
+2. Choose `release_type`:
+   - `patch`, `minor`, `major` — stable semver bump → published as `latest` on npm.
+   - `beta` — pre-release → published as `next` on npm.
+3. Click **Run workflow**.
 
-   **Beta / pre-release:**
-   ```bash
-   npm run release:beta
-   # or
-   npx release-it --preRelease=beta
-   ```
+The four-job pipeline:
 
-   **Dry run (safe to test):**
-   ```bash
-   npm run release:dry
-   # or with flags
-   npx release-it --dry-run --increment=patch --no-git.requireCleanWorkingDir
-   ```
+```
+prepare-release
+  → release-it: bump package.json, sync version.ts, update CHANGELOG,
+                commit, tag, create GitHub Release
+       |
+       ├── build-binaries (parallel)
+       │     Linux x64 (ubuntu-latest)
+       │     Linux arm64 (ubuntu-24.04-arm)
+       │     macOS Intel (macos-13)
+       │     macOS Apple Silicon (macos-14)
+       │     Windows x64 (windows-latest)
+       │
+       └── publish-npm (parallel)
+             bun install → bun run build → bun test
+             → npm publish --access public --provenance --tag latest|next
+       |
+attach-release-assets
+  → generate SHA256SUMS
+  → GPG-sign binaries (if GPG_PRIVATE_KEY set)
+  → upload all assets to GitHub Release
+```
 
-4. `release-it` will:
-   - Bump the version in `package.json`.
-   - Sync `src/core/version.ts` from `package.json` via `scripts/sync-version.cjs`.
-   - Update `CHANGELOG.md` (moves Unreleased content to the new version section).
-   - Commit, create annotated tag (e.g. `v0.0.2`), push.
-   - Create a GitHub Release with the changelog as body.
+## Local Release
 
-5. The Release workflow builds and attaches platform binaries from the released tag.
+```bash
+# Dry run — safe, no network writes
+npm run release:dry
 
-## CI / Automated Release via GitHub Actions
+# Interactive release
+npm run release
 
-Use the manual "Release" workflow for controlled releases (safer in beta):
+# Beta / pre-release
+npm run release:beta
+```
 
-1. Go to the repo → Actions → "Release" workflow → "Run workflow".
-2. Choose the `release_type`:
-   - `patch`, `minor`, `major` for normal semver bumps.
-   - `beta` for pre-release. From the reset base version `0.0.0`, the first beta produces `0.0.1-beta.0`.
-3. The workflow will:
-   - Run `release-it` (with the chosen type) to handle bump, changelog, tag, and GitHub Release creation.
-   - Check out the released tag.
-   - Build Linux x64, Linux arm64, macOS arm64, and Windows x64 binaries.
-   - Attach those binaries to the GitHub Release.
+Requires Bun and a GitHub PAT with `repo` scope (or `gh auth login`).
 
-Manual dispatch is the supported release path. The standalone "Build Binaries" workflow is manual-only for ad hoc binary inspection.
+## CHANGELOG Workflow
+
+The `[Unreleased]` section in `CHANGELOG.md` is the source of truth for the next release notes.
+
+- Add entries to `[Unreleased]` as you work.
+- `release-it` (via `@release-it/keep-a-changelog`) moves the section to the new version on release.
+- GitHub Release body is generated from `scripts/changelog-unreleased.cjs`.
+
+Preview release notes:
+```bash
+node scripts/changelog-unreleased.cjs 0.0.1-beta.20
+```
 
 ## After Release
 
-- Verify the GitHub Release page has the correct notes + attached binaries.
-- Test the install scripts with the new version (they support `--version` / `-Version` and `--stable` / `-Stable`).
-- Announce if appropriate (e.g. in discussions or Discord).
-- For the next cycle, the top of `CHANGELOG.md` will have a fresh `[Unreleased]` section (the plugin helps maintain this).
+1. Verify the GitHub Release page has correct notes, attached binaries, `SHA256SUMS`, and `.asc` files (if GPG configured).
+2. Confirm npm: `npm info hoolix dist-tags` should show the new version under `latest` or `next`.
+3. Run installer smoke tests.
 
 ### Installer Smoke Tests
 
-Windows:
-
+**Windows:**
 ```powershell
 $dir = Join-Path $env:TEMP "hoolix-install-test"
 Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue
-PowerShell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Version v0.0.1-beta.0 -Prefix $dir -NoPathUpdate
+PowerShell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Prefix $dir -NoPathUpdate
 & "$dir\hoolix.exe" doctor --json
+& "$dir\hoolix.exe" --version
 ```
 
-macOS / Linux:
-
+**macOS / Linux:**
 ```bash
 tmp_dir="$(mktemp -d)"
-./install.sh --version v0.0.1-beta.0 --prefix "$tmp_dir" --no-path-update
+./install.sh --prefix "$tmp_dir" --no-path-update
 "$tmp_dir/hoolix" doctor --json
+"$tmp_dir/hoolix" --version
+```
+
+**npm:**
+```bash
+npm install -g hoolix@latest   # or hoolix@next for beta
+hoolix doctor
+hoolix --version
 ```
 
 ## Configuration
 
 - Main config: `.release-it.json` (git behavior, GitHub releases, keep-a-changelog plugin).
-- Version sync hook: `scripts/sync-version.cjs`.
-- GitHub release notes are read from the current `[Unreleased]` section by `scripts/changelog-unreleased.cjs`.
-- Scripts in `package.json`: `release`, `release:beta`, `release:dry`, `release:ci`.
-- The GitHub Release workflow lives in `.github/workflows/release.yml`.
-- Existing `build-binaries.yml` is manual-only and does not attach release assets.
-
-## Tips for Beta Releases
-
-- Use `release:beta` or the `beta` option in the Actions UI. This sets `preRelease` appropriately so the GitHub Release is marked as a pre-release.
-- The first beta from the reset base is `0.0.1-beta.0`.
-- You can do multiple betas before a stable `patch` / etc.
-- Beta binaries can discover newer beta releases through `hoolix update`; stable binaries only consider stable GitHub releases.
-- Installers resolve prereleases by default during beta; users can pass `--stable` / `-Stable` to ignore prereleases.
+- Version sync hook: `scripts/sync-version.cjs` — runs `after:bump`, keeps `src/core/version.ts` in sync with `package.json`.
+- GitHub release notes: `scripts/changelog-unreleased.cjs ${version}`.
+- CI workflow: `.github/workflows/release.yml`.
 
 ## Troubleshooting
 
-- "Working dir must be clean": Commit or stash changes, or use `--no-git.requireCleanWorkingDir` (for dry runs).
-- Missing GITHUB_TOKEN: For local, configure a PAT in env or use the GitHub CLI (`gh`) which release-it can integrate with.
-- Changelog errors: Ensure there's an `[Unreleased]` section with content before running a real release.
-- Dry-run release notes: `release-it --dry-run` may show `node scripts/changelog-unreleased.cjs` literally because dry runs do not execute release-note commands. Run `node scripts/changelog-unreleased.cjs` to preview the real GitHub release body.
-- Binary not attached: Check that the release was created (triggers the attach workflows) and that the tag matches.
+| Problem | Fix |
+|---|---|
+| "Working dir must be clean" | Commit or stash; use `--no-git.requireCleanWorkingDir` for dry runs |
+| npm publish fails | Verify `NPM_TOKEN` is in repo Secrets |
+| Binary not attached | Check `build-binaries` succeeded; `attach-release-assets` depends on all 5 artifacts |
+| GPG signing skipped | Normal when `GPG_PRIVATE_KEY` is not set; release proceeds without `.asc` |
+| `--provenance` fails | Verify `id-token: write` is on the `publish-npm` **job** (not workflow level) |
 
-For questions, open an issue or refer to the release-it docs.
+For more detail see [RELEASE.md](../RELEASE.md) and [PACKAGING.md](../PACKAGING.md) at the repo root.
 
 Happy releasing!

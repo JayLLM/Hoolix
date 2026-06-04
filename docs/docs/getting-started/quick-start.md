@@ -7,53 +7,63 @@ sidebar_position: 2
 
 Hoolix turns docs, repos, and templates into grounded MCP servers. The fastest way to learn it is the TUI.
 
-## 1. Open Hoolix
+## 1. Install and Open Hoolix
 
 ```bash
+npm install -g hoolix
 hoolix
 ```
 
-Running `hoolix` with no arguments opens the terminal dashboard. From the TUI you can create servers, launch a trial, browse templates, start and stop servers, verify retrieval quality, copy client config, reindex, and inspect logs.
+Running `hoolix` with no arguments opens the terminal dashboard. From the TUI you can install templates, create servers, launch a trial, browse templates, start and stop servers, verify retrieval quality, copy client config, reindex, and inspect logs.
 
 If you are in CI or a non-interactive terminal, Hoolix prints CLI help instead.
 
-## 2. Create A Trial Server
+## 2. Install an MCP Server Template
+
+Templates are curated, one-command installs for common tools:
 
 ```bash
-hoolix trial
+# Filesystem access
+hoolix install filesystem /Users/you/projects --yes
+
+# GitHub API
+hoolix install github-api --yes    # prompts for GITHUB_TOKEN
+
+# Web search
+hoolix install brave-search --yes  # prompts for BRAVE_API_KEY
+
+# Database
+hoolix install postgres --credential databaseUrl=postgresql://localhost/mydb --yes
+
+# Memory / sequential thinking
+hoolix install memory --yes
+hoolix install sequential-thinking --yes
 ```
 
-The trial server uses known-good public sources and is perfect for a first run, a demo, or testing `npx hoolix trial`.
-
-Verify it:
+Browse all 14 official templates:
 
 ```bash
-hoolix verify hoolix-trial
+hoolix templates list
+hoolix templates info brave-search
 ```
 
-Look for non-empty chunks, source URLs, and healthy sample searches.
-
-## 3. Start The MCP Host
+## 3. Create a Docs RAG Server
 
 ```bash
-hoolix start hoolix-trial
+hoolix create "React Docs" --url https://react.dev/llms.txt --yes
+hoolix verify react-docs
+hoolix start react-docs
 ```
 
-By default this starts authenticated Streamable HTTP hosting and prints the MCP client configuration. Hoolix also supports stdio:
+## 4. Connect a Client
 
 ```bash
-hoolix start hoolix-trial --transport stdio --json
+hoolix connect react-docs --client cursor
+hoolix connect my-github --client claude
+hoolix connect my-files --client claude-code
 ```
 
-Use stdio when your client prefers a local command transport. Use HTTP when you want a running local endpoint.
-
-## 4. Connect A Client
-
-```bash
-hoolix connect hoolix-trial --client cursor
-```
-
-`connect` can auto-merge Hoolix into supported client config files, create backups, copy config to your clipboard, and print client-specific restart steps. Supported targets include Cursor, Claude Desktop, Windsurf, Continue, Cline, Grok Build, and generic JSON.
+`connect` auto-merges Hoolix into supported client config files, creates backups, copies config to your clipboard, and prints client-specific restart steps. Supported targets include Cursor, Claude Desktop, Claude Code, VS Code, Windsurf, Continue, Cline, Grok Build, and generic JSON.
 
 Try this prompt in your client:
 
@@ -61,29 +71,13 @@ Try this prompt in your client:
 Use search_documentation to find installation instructions and cite the source URL.
 ```
 
-## 5. Create Your Own Server
-
-### Single Source
-
-```bash
-hoolix create "React Docs" --url https://react.dev/llms.txt --yes
-hoolix verify react-docs
-```
-
-### Multi-Source
+## 5. Create a Multi-Source Server
 
 ```bash
 hoolix create "Frontend Stack" \
   --source docs:https://react.dev/llms.txt \
   --source github:vercel/next.js \
   --yes
-```
-
-### Template
-
-```bash
-hoolix templates list
-hoolix create "Terraform AWS" --template terraform-aws-docs --yes
 ```
 
 ## What Hoolix Created
@@ -98,13 +92,24 @@ Each server has:
 - Audit logs and usage stats.
 - Reindex and export/import support.
 
+## Shell Completions
+
+Set up tab-completion for your shell:
+
+```bash
+eval "$(hoolix completion bash)"    # add to ~/.bashrc
+eval "$(hoolix completion zsh)"     # add to ~/.zshrc
+hoolix completion fish | source     # add to ~/.config/fish/config.fish
+```
+
 ## Helpful Next Commands
 
 ```bash
-hoolix list
+hoolix list                          # see all servers with live status
 hoolix info react-docs
 hoolix stats react-docs
 hoolix reindex react-docs --schedule daily --yes
+hoolix bundle export my-docs my-github --output team.hoolix.json  # share with teammates
 hoolix gui
 hoolix doctor
 ```

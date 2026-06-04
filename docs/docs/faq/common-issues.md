@@ -81,6 +81,19 @@ Schedules are local metadata. You still need a scheduler or automation runner to
 hoolix reindex --due --json
 ```
 
+## mcp-server Template Shows "Missing Credentials"
+
+After `hoolix install <template>`, the server may need credentials before it can start.
+
+```bash
+hoolix secrets list <slug>        # see which keys are expected
+hoolix secrets set <slug> <key>   # prompts for the value (masked)
+# or inline:
+hoolix secrets set <slug> githubToken ghp_xxxx
+```
+
+After setting credentials, run `hoolix connect <slug> --client <name>` to get the launch config.
+
 ## Source Plugin Not Found
 
 Run:

@@ -1,8 +1,10 @@
 # Hoolix Stability & Versioning Promises
 
-**Current stable version: 1.0.0 (released 2026-06-04)**
+**Current version: 0.0.1-beta.19 (pre-release)**
 
 This document describes what is stable, what may change, and the versioning policy for Hoolix v1.0 and beyond.
+
+> **Note:** Pre-releases (`0.0.1-beta.*`) carry **no stability guarantees**. The promises below apply once v1.0.0 ships. They are documented now so the contract is public and reviewable before that milestone.
 
 ## Installation (recommended)
 
@@ -32,7 +34,7 @@ Hoolix follows [Semantic Versioning](https://semver.org) `MAJOR.MINOR.PATCH`:
 | New command, new template, new flag | **MINOR** |
 | Bug fix, performance, or non-breaking behaviour | **PATCH** |
 
-Pre-releases (`0.0.1-beta.*`) carry **no stability guarantees**. Once v1.0.0 ships, the promises below apply.
+Once v1.0.0 ships, the promises below apply. Pre-releases carry no stability guarantees.
 
 ---
 
@@ -84,7 +86,7 @@ Official template IDs (e.g. `filesystem`, `github-api`, `postgres`) will not be 
 | TUI layout and key bindings | **Unstable** — may change in any MINOR |
 | Internal `__internal-host` / `__internal-proxy` flags | **Internal** — never call directly |
 | Web GUI (`hoolix gui`) API routes | **Unstable** until v1.1 |
-| Community template format | Stable schema; directory path may change before v1.0 |
+| Community template format | Stable schema; directory path may change before v1.0 GA |
 | SSE streaming in proxy mode | Phase 1 only; full SSE streaming is planned for a future MINOR |
 | `hoolix verify` scoring rubric | May improve; exact scores may change |
 
