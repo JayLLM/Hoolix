@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.1-beta.7] - 2026-06-04
+
 ### Changed
 
 - Added a shared `src/app/` service layer for server create, reindex, verify, list, info, delete, status, and log-tail orchestration so CLI commands, TUI actions, and Web GUI API routes now use the same business logic while preserving existing flags, output shapes, and on-disk server metadata.
@@ -105,7 +107,8 @@ App currently hangs during github workflow. Will be investigated later.
 - Added optional hybrid RAG with lazy BGE embedding + RRF reranker behind `--hybrid` / `--embedding-model`.
 - Added one-command client wiring for Claude/Cursor/Windsurf/Continue/Cline/GrokBuild and `--json` scripting support.
 
-[Unreleased]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.6...HEAD
+[Unreleased]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.7...HEAD
+[0.0.1-beta.7]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.6...v0.0.1-beta.7
 [0.0.1-beta.6]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.5...v0.0.1-beta.6
 [0.0.1-beta.5]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.4...v0.0.1-beta.5
 [0.0.1-beta.4]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.3...v0.0.1-beta.4
