@@ -59,6 +59,47 @@ export async function deleteCredentials(slug: string): Promise<void> {
   await fs.remove(getCredentialsPath(slug)).catch(() => {});
 }
 
+/**
+ * Set a single credential key. Creates or overwrites the key; leaves others intact.
+ * Updates credentialKeys in server metadata to reflect the new set.
+ */
+export async function updateCredential(
+  slug: string,
+  key: string,
+  value: string,
+): Promise<string[]> {
+  const existing = await loadCredentials(slug);
+  const updated = { ...existing, [key]: value };
+  await saveCredentials(slug, updated);
+  const keys = Object.keys(updated);
+  // Lazily import registry to avoid circular dependency at module load time
+  const { updateServerMetadata } = await import('../../core/registry.js');
+  await updateServerMetadata(slug, { credentialKeys: keys });
+  return keys;
+}
+
+/**
+ * Remove a single credential key. Deletes credentials.json entirely if it becomes empty.
+ * Updates credentialKeys in server metadata.
+ */
+export async function removeCredential(
+  slug: string,
+  key: string,
+): Promise<string[]> {
+  const existing = await loadCredentials(slug);
+  if (!(key in existing)) return Object.keys(existing);
+  delete existing[key];
+  if (Object.keys(existing).length === 0) {
+    await deleteCredentials(slug);
+  } else {
+    await saveCredentials(slug, existing);
+  }
+  const keys = Object.keys(existing);
+  const { updateServerMetadata } = await import('../../core/registry.js');
+  await updateServerMetadata(slug, { credentialKeys: keys });
+  return keys;
+}
+
 // ── Masking ───────────────────────────────────────────────────────────────────
 
 export function maskCredentials(

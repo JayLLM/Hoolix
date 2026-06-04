@@ -1,10 +1,11 @@
 import path from 'node:path';
+import { execSync } from 'node:child_process';
 import fs from 'fs-extra';
 import { VERSION } from '../core/version.js';
 import { ensureDirectories } from '../core/paths.js';
 import { loadConfig } from '../core/config.js';
 import { listServers } from '../core/registry.js';
-import { getServerDataDir } from '../core/paths.js';
+import { getServerDataDir, getServerCredentialsPath } from '../core/paths.js';
 import { listTemplates } from '../app/services/catalog.js';
 import { listSourcePlugins } from '../sources/plugins.js';
 import { printTitle, printCommand, printDetails, printJson, ui } from '../ui/format.js';
@@ -81,6 +82,43 @@ export async function cmdDoctor(json: boolean): Promise<void> {
     checks.push({ name: 'source-plugins', ok: true, detail: `${plugins.length} custom provider(s)` });
   } catch (e: any) {
     checks.push({ name: 'source-plugins', ok: false, detail: e.message || String(e) });
+  }
+
+  // ── mcp-server runtime tools ────────────────────────────────────────────────
+  // npx: required for filesystem, github-api, postgres, memory, and most npm-based templates
+  try {
+    execSync('npx --version', { stdio: 'ignore' });
+    checks.push({ name: 'npx', ok: true, detail: 'available (required for npm-based MCP server templates)' });
+  } catch {
+    checks.push({ name: 'npx', ok: false, detail: 'not found — install Node.js to use filesystem/github-api/postgres/memory templates' });
+  }
+
+  // uvx: required for sqlite template (Python-based official MCP server)
+  try {
+    execSync(process.platform === 'win32' ? 'uvx --version 2>nul' : 'uvx --version', { stdio: 'ignore' });
+    checks.push({ name: 'uvx', ok: true, detail: 'available (required for sqlite template)' });
+  } catch {
+    checks.push({ name: 'uvx', ok: false, detail: 'not found — install uv (https://docs.astral.sh/uv/) for the sqlite template' });
+  }
+
+  // ── credentials.json permission check (Unix only) ────────────────────────────
+  if (process.platform !== 'win32') {
+    const mcpServers = (results.servers as any)?.slugs as string[] | undefined ?? [];
+    const loosePerm: string[] = [];
+    for (const serverSlug of mcpServers) {
+      const credPath = getServerCredentialsPath(serverSlug);
+      if (await fs.pathExists(credPath)) {
+        try {
+          const stat = await fs.stat(credPath);
+          if ((stat.mode & 0o777) !== 0o600) loosePerm.push(serverSlug);
+        } catch {}
+      }
+    }
+    if (loosePerm.length === 0) {
+      checks.push({ name: 'credentials-perms', ok: true, detail: 'all credentials.json files are 0600' });
+    } else {
+      checks.push({ name: 'credentials-perms', ok: false, detail: `loose permissions on: ${loosePerm.join(', ')} — run: chmod 0600 ~/.local/share/hoolix/servers/<slug>/credentials.json` });
+    }
   }
 
   let netOk = false;

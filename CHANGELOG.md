@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`hoolix secrets` command family** — credential rotation for `mcp-server` kind servers without deleting/recreating them. Three sub-commands: `secrets list <slug>` (shows masked keys with template labels and env-var hints), `secrets set <slug> <key> [value]` (adds or replaces a credential; prompts with masked input if value omitted; supports `--value`, `--yes`, `--json`), `secrets remove <slug> <key>` (deletes a key with confirmation; warns if removing a required credential). Both singular (`secret`) and plural (`secrets`) aliases accepted.
+- **`updateCredential(slug, key, value)` and `removeCredential(slug, key)`** added to `src/app/services/credentials.ts` — save to `credentials.json` (0600) and sync `credentialKeys[]` in `metadata.json` atomically.
+- **`hoolix doctor` new checks**: `npx` availability (required for filesystem/github-api/postgres/memory templates), `uvx` availability (required for sqlite template), and `credentials-perms` (flags any `credentials.json` not at mode 0600 on Unix).
+- **`hoolix reindex` mcp-server guard**: attempting to reindex an `mcp-server` kind server now exits cleanly with an actionable message pointing to `hoolix secrets set` instead.
+- **`--due` reindex loop** now silently skips `mcp-server` kind servers (they have no ingestion pipeline).
+- `secrets` and `secret` (singular alias) added to CLI dispatcher and help text with examples.
+
+### Added
+
+- **`hoolix clients list`** — new command listing all 9 supported MCP clients (claude, claude-code, cursor, vscode, windsurf, continue, cline, codex, grokbuild) with detection status (`✓ installed` / `○ dir exists` / `✗ not found`), config file path, and summary counts. Supports `--json`.
+- **`hoolix client status`** — scans all detected client config files, reports which Hoolix-managed servers (matched by slug) are present in each `mcpServers` block, shows transport type (http/stdio), and lists any registered Hoolix servers not yet wired into any client. Supports `--json`.
+- Both commands dispatched via `hoolix clients` or `hoolix client` (singular alias) + sub-command (`list`, `status`).
+- `hoolix connect` now prints a tip line after a successful write: `hoolix client status`.
+- Help text updated with new Client integration section entries and examples.
+
 ## [0.0.1-beta.12] - 2026-06-04
 
 ### Added

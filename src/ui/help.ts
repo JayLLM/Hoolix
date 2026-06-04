@@ -25,7 +25,12 @@ ${chalk.bold('Lifecycle')}
   ${ui.accent('rotate')} <slug>         Rotate the Bearer auth key (clients must be updated after)
 
 ${chalk.bold('Client integration')}
-  ${ui.accent('connect')} <slug>        Wire into a client with backup/merge (--client claude|cursor|vscode|…, --json)
+  ${ui.accent('connect')} <slug>        Wire into a client with backup/merge (--client claude|claude-code|cursor|vscode|…, --dry-run, --json)
+  ${ui.accent('clients list')}          Show all supported clients with detection status and config paths (--json)
+  ${ui.accent('client status')}         Show which Hoolix servers are wired in each detected client (--json)
+  ${ui.accent('secrets list')} <slug>   Show masked credential keys for an mcp-server (--json)
+  ${ui.accent('secrets set')} <slug> <key> [val]  Add or rotate a credential; prompts if value omitted (--yes, --json)
+  ${ui.accent('secrets remove')} <slug> <key>     Delete a stored credential (--yes, --json)
   ${ui.accent('trial')}                 One-click demo server for first runs and npx demos (--json)
 
 ${chalk.bold('Observability')}
@@ -51,6 +56,14 @@ ${chalk.bold('Examples — MCP server templates (new)')}
   ${ui.accent('›')} hoolix create "My DB" --template postgres --credential databaseUrl=postgresql://… --yes --json
   ${ui.accent('›')} hoolix install memory
   ${ui.accent('›')} hoolix connect my-files --client claude
+  ${ui.accent('›')} hoolix connect my-github --client claude-code --yes
+  ${ui.accent('›')} hoolix connect my-files --dry-run
+  ${ui.accent('›')} hoolix clients list
+  ${ui.accent('›')} hoolix client status
+  ${ui.accent('›')} hoolix secrets list my-github
+  ${ui.accent('›')} hoolix secrets set my-github githubToken ghp_newtoken123
+  ${ui.accent('›')} hoolix secrets set my-db databaseUrl   (interactive masked prompt)
+  ${ui.accent('›')} hoolix secrets remove my-github githubToken --yes
 
 ${chalk.bold('Examples — Docs RAG (existing)')}
   ${ui.accent('›')} hoolix create "React Docs" --template docs-rag --url https://react.dev/llms.txt --yes

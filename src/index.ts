@@ -121,6 +121,18 @@ async function main() {
       await cmdConnect(args, jsonOutput);
       return;
     }
+    case 'clients':
+    case 'client': {
+      const { cmdClients } = await import('./commands/clients.js');
+      await cmdClients(args, jsonOutput);
+      return;
+    }
+    case 'secrets':
+    case 'secret': {
+      const { cmdSecrets } = await import('./commands/secrets.js');
+      await cmdSecrets(args, jsonOutput);
+      return;
+    }
     case 'rotate':
     case 'rotate-key': {
       const { cmdRotateKey } = await import('./commands/rotate.js');

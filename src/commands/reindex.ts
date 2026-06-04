@@ -14,6 +14,8 @@ export async function cmdReindex(args: string[], json: boolean): Promise<void> {
     const cfg = await loadConfig();
     const results = [];
     for (const server of due) {
+      // mcp-server kind never needs reindex (no ingestion pipeline)
+      if ((server as any).serverKind === 'mcp-server') continue;
       const embeddingModel = resolveEmbeddingModel(args, cfg);
       const result = await reindexServer({ slug: server.slug, embeddingModel, maxChunks: 6000, maxPages: 80 });
       results.push({ slug: server.slug, skipped: !!result.skipped, chunks: result.ingestion.stats.totalChunks });
@@ -37,6 +39,14 @@ export async function cmdReindex(args: string[], json: boolean): Promise<void> {
   } catch {
     if (json) printJson({ ok: false, slug, error: `Server "${slug}" not found.` });
     else logger.error(`Server "${slug}" not found.`);
+    process.exit(1);
+  }
+
+  // mcp-server kind: no ingestion pipeline — credentials are updated via 'hoolix secrets'
+  if ((meta.serverKind ?? 'docs-rag') === 'mcp-server') {
+    const msg = `"${slug}" is an mcp-server kind server (no ingestion pipeline). To update credentials use: hoolix secrets set ${slug} <key> <value>`;
+    if (json) printJson({ ok: false, slug, kind: 'mcp-server', error: msg, next: `hoolix secrets set ${slug} <key> <value>` });
+    else logger.error(msg);
     process.exit(1);
   }
 

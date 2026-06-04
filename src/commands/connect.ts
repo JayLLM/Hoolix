@@ -28,7 +28,7 @@ export type ClientId =
   | 'grokbuild'
   | 'generic';
 
-const ALL_CLIENTS: ClientId[] = [
+export const ALL_CLIENTS: ClientId[] = [
   'claude', 'claude-code', 'cursor', 'vscode',
   'windsurf', 'continue', 'cline', 'codex', 'grokbuild', 'generic',
 ];
@@ -498,6 +498,11 @@ export async function cmdConnect(args: string[], json: boolean): Promise<void> {
     printCommand(`hoolix connect ${slug} --client cursor --project`);
     printCommand(`hoolix connect ${slug} --dry-run`);
     printCommand(`hoolix connect ${slug} --json`);
+  }
+
+  if (!isDryRun) {
+    console.log(`  ${ui.muted('Tip:')} hoolix client status   (see which clients have this server wired in)`);
+    console.log('');
   }
 }
 
