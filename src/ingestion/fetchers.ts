@@ -2,6 +2,7 @@ import { logger } from '../core/logger.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fetchPrimaryGitHubContent, parseGitHubRepoUrl, getGitHubToken, isGitHubRepoUrl } from './github.js';
+import { assertSafeFetchTarget } from '../lib/safeFetch.js';
 
 export interface FetchResult {
   content: string;
@@ -13,14 +14,17 @@ const DEFAULT_TIMEOUT = 25_000;
 const MAX_RETRIES = 2;
 const execFileAsync = promisify(execFile);
 
+/** Status codes that are worth retrying (transient server-side failures). */
+const RETRYABLE_STATUS = new Set([408, 429, 500, 502, 503, 504]);
+
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), ms);
+  let outerTimer: ReturnType<typeof setTimeout> | undefined;
+  const outerPromise = new Promise<never>((_, rej) => {
+    outerTimer = setTimeout(() => rej(new Error('Request timeout')), ms + 100);
+  });
   return Promise.race([
-    promise.finally(() => clearTimeout(timeout)),
-    new Promise<never>((_, rej) =>
-      setTimeout(() => rej(new Error('Request timeout')), ms + 100)
-    ),
+    promise.finally(() => { if (outerTimer !== undefined) clearTimeout(outerTimer); }),
+    outerPromise,
   ]) as Promise<T>;
 }
 
@@ -29,6 +33,10 @@ export async function fetchWithRetry(
   opts: { timeout?: number; headers?: Record<string, string> } = {}
 ): Promise<Response> {
   const { timeout = DEFAULT_TIMEOUT, headers = {} } = opts;
+
+  // SSRF guard: reject private/internal targets before the first connection attempt.
+  await assertSafeFetchTarget(url);
+
   let lastErr: Error | null = null;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -44,10 +52,17 @@ export async function fetchWithRetry(
         }),
         timeout
       );
+      // Only retry on transient server errors — 4xx (except 408/429) are final.
+      if (!res.ok && !RETRYABLE_STATUS.has(res.status)) throw new Error(`HTTP ${res.status}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res;
     } catch (err: any) {
       lastErr = err;
+      // Don't retry SSRF guard rejections or non-retryable HTTP errors.
+      const msg: string = err?.message || '';
+      if (msg.startsWith('SSRF guard:')) throw err;
+      if (msg.match(/^HTTP (4\d\d)$/) && !RETRYABLE_STATUS.has(Number(msg.slice(5)))) throw err;
+
       if (attempt < MAX_RETRIES) {
         const delay = 400 * (attempt + 1);
         logger.debug(`Fetch retry ${attempt + 1} for ${url} after ${delay}ms`);
@@ -62,15 +77,23 @@ async function fetchTextWithCurl(
   url: string,
   opts: { timeout?: number; headers?: Record<string, string> } = {}
 ): Promise<string | null> {
+  // SSRF guard applies to the curl fallback too.
+  try {
+    await assertSafeFetchTarget(url);
+  } catch {
+    return null;
+  }
+
   const { timeout = DEFAULT_TIMEOUT, headers = {} } = opts;
   const curl = process.platform === 'win32' ? 'curl.exe' : 'curl';
   const args: string[] = [
     '-fsSL',
     '--compressed',
-    '--max-time',
-    String(Math.ceil(timeout / 1000)),
-    '-A',
-    headers['User-Agent'] || headers['user-agent'] || 'hoolix/0.2 (https://github.com/JayLLM/hoolix)',
+    '--max-time', String(Math.ceil(timeout / 1000)),
+    // Restrict protocols to http/https only (prevents file://, ftp://, etc.)
+    '--proto', '=https,http',
+    '--proto-redir', '=https,http',
+    '-A', headers['User-Agent'] || headers['user-agent'] || 'hoolix/0.2 (https://github.com/JayLLM/hoolix)',
   ];
   // Forward all provided headers (critical for Authorization on private GitHub raw.githubusercontent when curl fallback triggers)
   for (const [k, v] of Object.entries(headers)) {

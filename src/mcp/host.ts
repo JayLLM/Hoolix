@@ -15,6 +15,9 @@ import fs from 'fs-extra';
 import { getServerRuntimePath, getServerDataDir } from '../core/paths.js';
 import path from 'node:path';
 import { getServerMetadata } from '../core/registry.js';
+import { timingSafeEqualString } from '../lib/auth.js';
+import { RateLimiter } from '../lib/rateLimiter.js';
+import { AuditLogger } from '../lib/auditLogger.js';
 
 export interface HostOptions {
   slug: string;
@@ -108,60 +111,31 @@ async function parseArgs(): Promise<HostOptions> {
 async function startHostedServer(opts: HostOptions) {
   const { slug, port, dataDir: _dataDir, authKey, bindHost = '127.0.0.1' } = opts;
 
+  // Catch-all for unhandled rejections so a bad RAG query can't crash the host process.
+  process.on('unhandledRejection', (reason) => {
+    logger.error(`Unhandled rejection in host "${slug}": ${reason instanceof Error ? reason.stack || reason.message : String(reason)}`);
+  });
+  process.on('uncaughtException', (err) => {
+    logger.error(`Uncaught exception in host "${slug}": ${err.stack || err.message}`);
+  });
+
   logger.info(`Starting MCP host for "${slug}" on ${bindHost}:${port}`);
 
   // Load RAG (Fuse default; hybrid if server was indexed that way)
   const rag = await createRAGForServer(slug);
   const meta = await getServerMetadata(slug).catch(() => null);
 
-  // In-memory rate limiter (per-server; token-bucket style with fixed window for simplicity).
-  // 120 req / 60s default. Configurable via env for advanced use (MCP_RATE_LIMIT, MCP_RATE_WINDOW_SEC).
-  // Returns true if allowed; callers handle 429 + Retry-After.
+  // In-memory rate limiter with periodic persistence (no per-request file I/O).
   const RATE_LIMIT = Math.max(1, parseInt(process.env.MCP_RATE_LIMIT || '120', 10));
   const RATE_WINDOW_MS = Math.max(1000, (parseInt(process.env.MCP_RATE_WINDOW_SEC || '60', 10)) * 1000);
   const rateStatePath = path.join(getServerDataDir(slug), 'rate-state.json');
-  let reqCount = 0;
-  let windowStart = Date.now();
-  try {
-    const state = await fs.readJson(rateStatePath);
-    if (typeof state.windowStart === 'number' && typeof state.reqCount === 'number') {
-      reqCount = state.reqCount;
-      windowStart = state.windowStart;
-    }
-  } catch {}
-  async function saveRateState(): Promise<void> {
-    await fs.writeJson(rateStatePath, { windowStart, reqCount, limit: RATE_LIMIT, windowMs: RATE_WINDOW_MS }).catch(() => {});
-  }
-  async function checkRateLimit(): Promise<boolean> {
-    const now = Date.now();
-    if (now - windowStart > RATE_WINDOW_MS) {
-      reqCount = 0;
-      windowStart = now;
-    }
-    reqCount += 1;
-    await saveRateState();
-    return reqCount <= RATE_LIMIT;
-  }
+  const rateLimiter = new RateLimiter(RATE_LIMIT, RATE_WINDOW_MS, rateStatePath);
+  await rateLimiter.init();
 
+  // Audit logger with in-memory line counter and atomic rotation.
   const auditPath = path.join(getServerDataDir(slug), 'audit.log');
-  const MAX_AUDIT_LINES = 5000; // keep last N lines to prevent unbounded growth (advanced audit rotation)
-  async function audit(tool: string, details: Record<string, unknown>) {
-    try {
-      const line = JSON.stringify({ ts: new Date().toISOString(), tool, ...details }) + '\n';
-      await fs.appendFile(auditPath, line).catch(() => {});
-
-      // Simple rotation/trim for production hygiene (no external deps, cross-platform)
-      try {
-        const content = await fs.readFile(auditPath, 'utf8').catch(() => '');
-        const lines = content.split('\n').filter(Boolean);
-        if (lines.length > MAX_AUDIT_LINES) {
-          const kept = lines.slice(-Math.floor(MAX_AUDIT_LINES * 0.8)).join('\n') + '\n';
-          await fs.writeFile(auditPath, kept).catch(() => {});
-          logger.debug(`Rotated audit.log for ${slug} (kept last ~${Math.floor(MAX_AUDIT_LINES * 0.8)} entries)`);
-        }
-      } catch {}
-    } catch {}
-  }
+  const auditLogger = new AuditLogger(auditPath);
+  await auditLogger.init();
 
   const server = new McpServer({
     name: `hoolix-${slug}`,
@@ -186,8 +160,8 @@ async function startHostedServer(opts: HostOptions) {
       try {
         return await withToolTimeout('search_documentation', (async () => {
           const results = await rag.search(query, { limit, mode });
-          await audit('search_documentation', { query: String(query).slice(0, 120), limit, mode, hits: results.length });
-          let formatted = results.map((r, i) => 
+          await auditLogger.write('search_documentation', { query: String(query).slice(0, 120), limit, mode, hits: results.length });
+          let formatted = results.map((r, i) =>
             `[${i + 1}] ${r.metadata.title || r.metadata.url}\n${r.content}\n${formatResultSource(r.metadata)}\n`
           ).join('\n---\n');
           formatted = truncateToTokenBudget(formatted, tokenBudget(args, 4500));
@@ -197,7 +171,7 @@ async function startHostedServer(opts: HostOptions) {
           };
         })());
       } catch (e: any) {
-        await audit('tool_error', { toolName: 'search_documentation', reason: e?.message || String(e) });
+        await auditLogger.write('tool_error', { toolName: 'search_documentation', reason: e?.message || String(e) });
         return toolErrorResponse(e?.message || 'search_documentation failed. Next: retry with a narrower query.');
       }
     }
@@ -221,15 +195,15 @@ async function startHostedServer(opts: HostOptions) {
         return await withToolTimeout('read_documentation_page', (async () => {
           const page = await rag.readPage(urlOrPath, maxChunks);
           if (!page) {
-            await audit('read_documentation_page', { urlOrPath: String(urlOrPath).slice(0, 200), found: false });
+            await auditLogger.write('read_documentation_page', { urlOrPath: String(urlOrPath).slice(0, 200), found: false });
             return { content: [{ type: 'text' as const, text: `Page not found: ${urlOrPath}` }] };
           }
-          await audit('read_documentation_page', { urlOrPath: String(urlOrPath).slice(0, 200), found: true, chunks: page.chunks?.length || 0 });
+          await auditLogger.write('read_documentation_page', { urlOrPath: String(urlOrPath).slice(0, 200), found: true, chunks: page.chunks?.length || 0 });
           const text = `# ${page.title}\n\nSource: ${page.url}${meta?.definition?.template ? `\nTemplate: ${meta.definition.template.name}` : ''}\n\n${page.content}`;
           return { content: [{ type: 'text' as const, text: truncateToTokenBudget(text, tokenBudget(args, 7000)) }] };
         })());
       } catch (e: any) {
-        await audit('tool_error', { toolName: 'read_documentation_page', reason: e?.message || String(e) });
+        await auditLogger.write('tool_error', { toolName: 'read_documentation_page', reason: e?.message || String(e) });
         return toolErrorResponse(e?.message || 'read_documentation_page failed. Next: retry with a smaller maxChunks value.');
       }
     }
@@ -245,14 +219,14 @@ async function startHostedServer(opts: HostOptions) {
       try {
         return await withToolTimeout('get_table_of_contents', (async () => {
           const toc = await rag.getTableOfContents();
-          await audit('get_table_of_contents', { entries: toc.length });
+          await auditLogger.write('get_table_of_contents', { entries: toc.length });
           const text = toc
             .map(item => `${'  '.repeat(item.level - 1)}- ${item.title}${item.url ? `\n${'  '.repeat(item.level)}Source: ${item.url}` : ''}`)
             .join('\n');
           return { content: [{ type: 'text' as const, text: text || 'No table of contents available.' }] };
         })());
       } catch (e: any) {
-        await audit('tool_error', { toolName: 'get_table_of_contents', reason: e?.message || String(e) });
+        await auditLogger.write('tool_error', { toolName: 'get_table_of_contents', reason: e?.message || String(e) });
         return toolErrorResponse(e?.message || 'get_table_of_contents failed. Next: retry after reindexing this server.');
       }
     }
@@ -270,7 +244,7 @@ async function startHostedServer(opts: HostOptions) {
     return c.json({ status: 'ok', server: slug, chunks: hasData ? 'indexed' : 'empty' });
   });
 
-  // Auth middleware (Bearer or X-MCP-Key). Registered only on /mcp; /health stays public.
+  // Auth middleware (Bearer or X-MCP-Key). Timing-safe compare. Registered only on /mcp.
   app.use('/mcp', async (c, next) => {
     const authHeader = c.req.header('Authorization');
     const headerKey =
@@ -278,16 +252,15 @@ async function startHostedServer(opts: HostOptions) {
         ? authHeader.replace(/^Bearer\s+/i, '')
         : c.req.header('X-MCP-Key');
 
-    if (!headerKey || headerKey !== authKey) {
+    if (!headerKey || !timingSafeEqualString(headerKey, authKey)) {
       return c.json(
         { error: 'Unauthorized. Provide valid Authorization: Bearer <key> or X-MCP-Key header.' },
         401,
       );
     }
-    if (!(await checkRateLimit())) {
-      await audit('rate_limited', { path: c.req.path, limit: RATE_LIMIT, windowSec: Math.floor(RATE_WINDOW_MS / 1000) });
-      // Retry-After for clients (and MCP hosts) — advanced rate limiting surface
-      c.header('Retry-After', String(Math.ceil(RATE_WINDOW_MS / 1000)));
+    if (!rateLimiter.check()) {
+      await auditLogger.write('rate_limited', { path: c.req.path, limit: RATE_LIMIT, windowSec: Math.floor(RATE_WINDOW_MS / 1000) });
+      c.header('Retry-After', String(rateLimiter.retryAfterSeconds()));
       return c.json({ error: 'Rate limit exceeded. Try again later.' }, 429);
     }
     await next();
@@ -299,18 +272,13 @@ async function startHostedServer(opts: HostOptions) {
 
   app.all('/mcp', (c) => transport.handleRequest(c.req.raw));
 
-  // Write .runtime.json for parent process liveness + port discovery
   const runtimePath = getServerRuntimePath(slug);
-  await fs.writeJson(runtimePath, {
-    pid: process.pid,
-    port,
-    startedAt: new Date().toISOString(),
-    status: 'running',
-  }, { spaces: 2 });
 
-  // Graceful shutdown (remove runtime marker)
+  // Graceful shutdown: flush state before exit.
   const shutdown = async () => {
     logger.info('Shutting down MCP host...');
+    rateLimiter.stop();
+    await rateLimiter.flush().catch(() => {});
     try { await fs.remove(runtimePath); } catch {}
     process.exit(0);
   };
@@ -320,23 +288,30 @@ async function startHostedServer(opts: HostOptions) {
   logger.info(`MCP server ready at http://${bindHost}:${port}/mcp`);
   logger.info(`Auth header required: Authorization: Bearer ${maskSecret(authKey)}`);
 
-  serve({
+  // Bind first, then write .runtime.json so callers can trust the port is actually live.
+  const nodeServer = serve({
     fetch: app.fetch,
     port,
     hostname: bindHost,
   });
+
+  await new Promise<void>((resolve, reject) => {
+    (nodeServer as any).once('listening', () => resolve());
+    (nodeServer as any).once('error', (err: Error) => reject(err));
+    // If server is already listening (unlikely but possible in test environments)
+    if ((nodeServer as any).listening) resolve();
+  });
+
+  await fs.writeJson(runtimePath, {
+    pid: process.pid,
+    port,
+    startedAt: new Date().toISOString(),
+    status: 'running',
+  }, { spaces: 2 });
 }
 
 /**
  * Direct execution guard for host mode.
- *
- * Only activates the host parser+server when the four --slug/--port/--data-dir/--auth-key
- * args are present. This reliably distinguishes:
- * - `tsx src/mcp/host.ts --slug ...` (manual/dev)
- * - `node --import tsx ...`
- * - compiled-binary __internal-host self-spawn
- *
- * Prevents the main CLI bundle from ever entering host logic accidentally.
  */
 if (
   !process.argv.includes('__internal-host') &&

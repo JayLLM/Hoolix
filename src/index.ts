@@ -235,8 +235,19 @@ async function main() {
     default: {
       // Probe raw-mode support before importing the TUI module.
       // This prevents failures in packaged Windows exes on certain terminals.
+      // TUI test-mode env vars are intentionally disabled in compiled binaries
+      // to prevent unexpected CI-only behaviour from leaking into production installs.
+      const { getInstallMethod } = await import('./core/updater.js');
+      const isBinary = getInstallMethod() === 'binary';
+      // Strip CI-only test flags in packaged binaries so they can't be triggered in production.
+      if (isBinary) {
+        delete process.env.MCP_PORTAL_TUI_TEST_MODE;
+        delete process.env.MCP_PORTAL_TUI_KEYS;
+      }
+      const tuiTestMode = !isBinary && process.env.MCP_PORTAL_TUI_TEST_MODE === '1';
+
       let rawModeProbeOk = true;
-      if (process.env.MCP_PORTAL_TUI_TEST_MODE === '1') {
+      if (tuiTestMode) {
         rawModeProbeOk = true;
       } else if (process.stdin.isTTY && process.stdout.isTTY) {
         try {

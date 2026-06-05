@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+feat: enhance dashboard security by embedding token in meta tag
+
+- Updated buildDashboardHtml to embed the token in a <meta> tag instead of passing it via URL.
+- Adjusted JavaScript to read the token from the <meta> tag for API calls.
+- Improved security by ensuring the token is not exposed in browser history or logs.
+
+fix: improve GUI token handling and permissions
+
+- Added checks to ensure GUI token file permissions are set to 0600.
+- Implemented Windows-specific ACL tightening for the GUI token file.
+- Enhanced error handling for token management.
+
+chore: add CodeQL analysis and dependency review workflows
+
+- Introduced GitHub Actions workflows for CodeQL analysis and dependency review.
+- Scheduled weekly scans for vulnerabilities and dependency updates.
+
+docs: create threat model documentation
+
+- Added THREAT_MODEL.md to outline security boundaries and adversarial threats.
+- Documented trust boundaries and what Hoolix does not protect against.
+
+feat: implement audit logging and log redaction
+
+- Created an append-only audit logger with in-memory line counting and atomic rotation.
+- Added log redaction functionality to prevent sensitive information from being logged.
+
+feat: implement in-memory rate limiting and SSRF protection
+
+- Developed an in-memory fixed-window rate limiter with periodic state persistence.
+- Added SSRF-safe fetch helpers to validate outbound HTTP requests.
+
 ## [0.0.4] - 2026-06-05
 
 ### Added

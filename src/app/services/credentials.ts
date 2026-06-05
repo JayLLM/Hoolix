@@ -7,6 +7,7 @@
  */
 
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import fs from 'fs-extra';
 import { text, isCancel } from '@clack/prompts';
 import { getServerDir } from '../../core/paths.js';
@@ -36,8 +37,25 @@ export async function saveCredentials(
   await fs.ensureDir(getServerDir(slug));
   const credPath = getCredentialsPath(slug);
   await fs.writeJson(credPath, credentials, { spaces: 2 });
-  // 0600: owner read/write only. No-op on Windows (acceptable; document in PACKAGING).
+  // 0600: owner read/write only. On Windows, chmod is a no-op; tighten with icacls.
   await fs.chmod(credPath, CREDENTIALS_MODE).catch(() => {});
+  if (process.platform === 'win32') {
+    tightenCredentialsAclWin(credPath).catch(() => {});
+  }
+}
+
+/** Remove inherited ACLs on Windows so only the current user can read credentials.json. */
+async function tightenCredentialsAclWin(filePath: string): Promise<void> {
+  const username = process.env.USERNAME || process.env.USER || '';
+  if (!username) return;
+  await new Promise<void>((resolve) => {
+    const child = spawn('icacls', [filePath, '/inheritance:r', '/grant:r', `${username}:(R,W)`], {
+      stdio: 'ignore',
+      shell: false,
+    });
+    child.on('close', () => resolve());
+    child.on('error', () => resolve()); // icacls missing is non-fatal
+  });
 }
 
 export async function loadCredentials(slug: string): Promise<Record<string, string>> {

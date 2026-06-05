@@ -13,6 +13,10 @@ import { loadCredentials, interpolateRunConfig } from '../app/services/credentia
 import { findProfileByAuthKey, type Profile } from '../core/profiles.js';
 import { evaluatePolicy } from '../core/policy.js';
 import { consumeMatchingApproval, findDeniedMatchingApproval, hashArgs, previewArgs, queueApproval } from '../core/approvals.js';
+import { timingSafeEqualString } from '../lib/auth.js';
+import { RateLimiter } from '../lib/rateLimiter.js';
+import { AuditLogger } from '../lib/auditLogger.js';
+import { redactSecrets } from '../lib/logRedact.js';
 
 export interface GatewayHostOptions {
   slug: string;
@@ -59,16 +63,19 @@ class GatewayChild {
   ) {}
 
   async start(): Promise<void> {
+    // On Windows, cmd scripts need cmd.exe /c with array args (no shell:true interpolation).
     const isWindowsNpx = process.platform === 'win32' && this.command === 'npx';
-    const cmd = isWindowsNpx ? 'npx.cmd' : this.command;
-    this.child = spawn(cmd, this.args, {
+    const cmd  = isWindowsNpx ? 'cmd.exe' : this.command;
+    const argv = isWindowsNpx ? ['/c', 'npx.cmd', ...this.args] : this.args;
+    this.child = spawn(cmd, argv, {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, ...this.env },
-      shell: isWindowsNpx,
+      shell: false,
     });
 
     this.child.stderr?.on('data', (data: Buffer) => {
-      process.stderr.write(`[${this.slug}] ${data}`);
+      const text = data.toString('utf8');
+      process.stderr.write(`[${this.slug}] ${redactSecrets(text)}`);
     });
 
     this.rl = readline.createInterface({ input: this.child.stdout! });
@@ -209,9 +216,17 @@ export async function startGatewayHost(opts: GatewayHostOptions): Promise<void> 
   const { slug, port, authKey, bindHost = '127.0.0.1' } = opts;
   const config = await getGateway(slug);
   const children: GatewayChild[] = [];
-  const toolOwners = new Map<string, { child: GatewayChild; originalName: string }>();
-  const identities = new WeakMap<Request, RequestIdentity>();
+  // toolOwners is swapped atomically in listTools to avoid concurrent mutation.
+  let toolOwners = new Map<string, { child: GatewayChild; originalName: string }>();
   let initializeParams: Record<string, unknown> | null = null;
+
+  // Catch-all so child crashes don't bring down the gateway process.
+  process.on('unhandledRejection', (reason) => {
+    logger.error(`Unhandled rejection in gateway "${slug}": ${reason instanceof Error ? reason.stack || reason.message : String(reason)}`);
+  });
+  process.on('uncaughtException', (err) => {
+    logger.error(`Uncaught exception in gateway "${slug}": ${err.stack || err.message}`);
+  });
 
   logger.info(`Starting gateway "${slug}" on ${bindHost}:${port}`);
 
@@ -227,46 +242,28 @@ export async function startGatewayHost(opts: GatewayHostOptions): Promise<void> 
   const dataDir = getGatewayDataDir(slug);
   await fs.ensureDir(dataDir);
   const rateStatePath = path.join(dataDir, 'rate-state.json');
-  let reqCount = 0;
-  let windowStart = Date.now();
-  try {
-    const state = await fs.readJson(rateStatePath);
-    if (typeof state.windowStart === 'number' && typeof state.reqCount === 'number') {
-      reqCount = state.reqCount;
-      windowStart = state.windowStart;
-    }
-  } catch {}
-
-  async function saveRateState(): Promise<void> {
-    await fs.writeJson(rateStatePath, { windowStart, reqCount, limit: RATE_LIMIT, windowMs: RATE_WINDOW_MS }).catch(() => {});
-  }
-
-  async function checkRateLimit(): Promise<boolean> {
-    const now = Date.now();
-    if (now - windowStart > RATE_WINDOW_MS) {
-      reqCount = 0;
-      windowStart = now;
-    }
-    reqCount += 1;
-    await saveRateState();
-    return reqCount <= RATE_LIMIT;
-  }
+  const rateLimiter = new RateLimiter(RATE_LIMIT, RATE_WINDOW_MS, rateStatePath);
+  await rateLimiter.init();
 
   const auditPath = path.join(dataDir, 'audit.log');
+  const auditLogger = new AuditLogger(auditPath);
+  await auditLogger.init();
   async function audit(tool: string, details: Record<string, unknown>): Promise<void> {
-    const line = JSON.stringify({ ts: new Date().toISOString(), tool, transport: 'gateway', gateway: slug, ...details }) + '\n';
-    await fs.appendFile(auditPath, line).catch(() => {});
+    await auditLogger.write(tool, { transport: 'gateway', gateway: slug, ...details });
   }
 
-  async function ensureChildrenInitialized(): Promise<void> {
-    if (!initializeParams) return;
-    await Promise.all(children.map((child) => child.initialize(initializeParams!)));
+  async function ensureChildrenInitialized(params?: Record<string, unknown>): Promise<void> {
+    const p = params ?? initializeParams;
+    if (!p) return;
+    await Promise.all(children.map((child) => child.initialize(p)));
   }
 
   async function listTools(id: string | number | null): Promise<JsonRpcResponse> {
     await ensureChildrenInitialized();
     const tools: unknown[] = [];
-    toolOwners.clear();
+    // Build into a fresh Map and swap atomically so concurrent callTool() calls
+    // never see a partially-populated owner map.
+    const nextOwners = new Map<string, { child: GatewayChild; originalName: string }>();
 
     for (const child of children) {
       const response = await child.request('tools/list', {});
@@ -279,10 +276,11 @@ export async function startGatewayHost(opts: GatewayHostOptions): Promise<void> 
         const originalName = String(tool.name ?? '');
         if (!originalName) continue;
         const namespacedName = `${child.namespace}.${originalName}`;
-        toolOwners.set(namespacedName, { child, originalName });
+        nextOwners.set(namespacedName, { child, originalName });
         tools.push({ ...tool, name: namespacedName, description: `[${child.slug}] ${String(tool.description ?? '')}`.trim() });
       }
     }
+    toolOwners = nextOwners; // atomic swap
     await audit('gateway_tools_list', { tools: tools.length, backends: children.length });
     return ok(id, { tools });
   }
@@ -361,15 +359,19 @@ export async function startGatewayHost(opts: GatewayHostOptions): Promise<void> 
   async function handle(req: JsonRpcRequest, identity: RequestIdentity): Promise<JsonRpcResponse | null> {
     const id = req.id ?? null;
     switch (req.method) {
-      case 'initialize':
-        initializeParams = (req.params ?? {}) as Record<string, unknown>;
+      case 'initialize': {
+        const params = (req.params ?? {}) as Record<string, unknown>;
+        // Store the most recent initializeParams so new children can be initialized.
+        initializeParams = params;
+        // Initialize children with this client's params immediately (handles protocolVersion per-client).
+        await ensureChildrenInitialized(params);
         return ok(id, {
-          protocolVersion: String((initializeParams as { protocolVersion?: unknown }).protocolVersion ?? '2024-11-05'),
+          protocolVersion: String((params as { protocolVersion?: unknown }).protocolVersion ?? '2024-11-05'),
           capabilities: { tools: {} },
           serverInfo: { name: `hoolix-gateway-${slug}`, version: '0.1.0' },
         });
+      }
       case 'notifications/initialized':
-        await ensureChildrenInitialized();
         return null;
       case 'ping':
         return ok(id, {});
@@ -398,13 +400,16 @@ export async function startGatewayHost(opts: GatewayHostOptions): Promise<void> 
     backends: children.map((child) => ({ slug: child.slug, namespace: child.namespace, running: child.isAlive, pid: child.pid })),
   }));
 
+  // Identity is resolved once in the middleware and stored in a Hono variable so
+  // batch sub-requests always use the same verified identity (no WeakMap fallback risk).
   app.use('/mcp', async (c, next) => {
     const authHeader = c.req.header('Authorization');
-    const headerKey = authHeader?.match(/^Bearer\s+/i)
+    const headerKey = (authHeader?.startsWith('Bearer ') || authHeader?.startsWith('bearer '))
       ? authHeader.replace(/^Bearer\s+/i, '')
       : c.req.header('X-MCP-Key');
+
     let identity: RequestIdentity | null = null;
-    if (headerKey === authKey) {
+    if (headerKey && timingSafeEqualString(headerKey, authKey)) {
       identity = { profile: null, authType: 'gateway' };
     } else if (headerKey) {
       const profile = await findProfileByAuthKey(headerKey);
@@ -414,17 +419,22 @@ export async function startGatewayHost(opts: GatewayHostOptions): Promise<void> 
     if (!identity) {
       return c.json({ error: 'Unauthorized. Provide valid Authorization: Bearer <key> or X-MCP-Key header.' }, 401);
     }
-    identities.set(c.req.raw, identity);
-    if (!(await checkRateLimit())) {
+    if (!rateLimiter.check()) {
       await audit('rate_limited', { limit: RATE_LIMIT, windowSec: Math.floor(RATE_WINDOW_MS / 1000) });
-      c.header('Retry-After', String(Math.ceil(RATE_WINDOW_MS / 1000)));
+      c.header('Retry-After', String(rateLimiter.retryAfterSeconds()));
       return c.json({ error: 'Rate limit exceeded. Try again later.' }, 429);
     }
+    // Store identity in context variables so the route handler always has it.
+    (c as any).set('identity', identity);
     await next();
     return;
   });
 
   app.all('/mcp', async (c) => {
+    // Identity is guaranteed by the middleware above — no fallback needed.
+    const identity = (c as any).get('identity') as RequestIdentity;
+    if (!identity) return c.json({ error: 'Internal auth error' }, 401);
+
     let body: unknown;
     try {
       body = await c.req.json();
@@ -435,11 +445,11 @@ export async function startGatewayHost(opts: GatewayHostOptions): Promise<void> 
     const preferSSE = (c.req.header('Accept') ?? '').includes('text/event-stream');
     try {
       if (Array.isArray(body)) {
-        const identity = identities.get(c.req.raw) ?? { profile: null, authType: 'gateway' };
-        const responses = (await Promise.all(body.map((item) => handle(item as JsonRpcRequest, identity)))).filter(Boolean);
+        const responses = (await Promise.all(
+          body.map((item) => handle(item as JsonRpcRequest, identity))
+        )).filter(Boolean);
         return preferSSE ? jsonRpcToSSE(responses) : c.json(responses);
       }
-      const identity = identities.get(c.req.raw) ?? { profile: null, authType: 'gateway' };
       const response = await handle(body as JsonRpcRequest, identity);
       if (response === null) return new Response(null, { status: 204 });
       return preferSSE ? jsonRpcToSSE(response) : c.json(response);
@@ -452,6 +462,29 @@ export async function startGatewayHost(opts: GatewayHostOptions): Promise<void> 
   });
 
   const runtimePath = getGatewayRuntimePath(slug);
+
+  const shutdown = async () => {
+    clearInterval(healthTimer);
+    for (const child of children) child.kill();
+    rateLimiter.stop();
+    await rateLimiter.flush().catch(() => {});
+    await fs.remove(runtimePath).catch(() => {});
+    process.exit(0);
+  };
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
+
+  logger.info(`Gateway ready at http://${bindHost}:${port}/mcp`);
+
+  // Bind first, then write .runtime.json so callers can trust the port is actually live.
+  const nodeServer = serve({ fetch: app.fetch, port, hostname: bindHost });
+
+  await new Promise<void>((resolve, reject) => {
+    (nodeServer as any).once('listening', () => resolve());
+    (nodeServer as any).once('error', (err: Error) => reject(err));
+    if ((nodeServer as any).listening) resolve();
+  });
+
   await fs.writeJson(runtimePath, {
     pid: process.pid,
     port,
@@ -460,18 +493,6 @@ export async function startGatewayHost(opts: GatewayHostOptions): Promise<void> 
     mode: 'gateway',
     backends: children.map((child) => ({ slug: child.slug, namespace: child.namespace, pid: child.pid })),
   }, { spaces: 2 });
-
-  const shutdown = async () => {
-    clearInterval(healthTimer);
-    for (const child of children) child.kill();
-    await fs.remove(runtimePath).catch(() => {});
-    process.exit(0);
-  };
-  process.on('SIGTERM', shutdown);
-  process.on('SIGINT', shutdown);
-
-  logger.info(`Gateway ready at http://${bindHost}:${port}/mcp`);
-  serve({ fetch: app.fetch, port, hostname: bindHost });
 }
 
 function readCliArg(name: string): string | undefined {

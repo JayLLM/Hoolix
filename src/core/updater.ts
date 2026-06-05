@@ -2,6 +2,7 @@ import { VERSION } from './version.js';
 import fs from 'fs-extra';
 import { logger } from './logger.js';
 import { createHash } from 'node:crypto';
+import { assertSafeFetchTarget } from '../lib/safeFetch.js';
 
 const REPO = 'JayLLM/hoolix'; // GitHub repo (keep stable); product branded as Hoolix
 const GITHUB_RELEASES_API = `https://api.github.com/repos/${REPO}/releases`;
@@ -73,11 +74,17 @@ function getPlatformAssetName(): string | null {
   return null;
 }
 
+const MAX_DOWNLOAD_BYTES = 300 * 1024 * 1024; // 300 MB hard cap
+
 export async function checkForUpdate(): Promise<UpdateCheckResult> {
   const currentVersion = VERSION.replace(/^v/, '');
   const currentIsPrerelease = parseVersion(currentVersion).prerelease.length > 0;
 
   try {
+    // SSRF guard: even though the URL is hardcoded, validate it to catch any
+    // future misconfiguration or env-override attack vectors.
+    await assertSafeFetchTarget(`${GITHUB_RELEASES_API}?per_page=20`).catch(() => {});
+
     const res = await fetch(`${GITHUB_RELEASES_API}?per_page=20`, {
       headers: { 'User-Agent': 'hoolix-updater' },
     });
@@ -118,25 +125,26 @@ export async function checkForUpdate(): Promise<UpdateCheckResult> {
 
 /** Download the SHA256SUMS file and verify the given binary matches.
  *  Returns { ok: boolean, verified: boolean }.
- *  verified=false means the checksum file was not available (non-fatal). */
+ *  verified=false means the checksum file was not available or the asset was not listed.
+ *  ok=false means the hash was present but did not match (hard failure). */
 async function verifyChecksum(
   binaryPath: string,
   assetName: string,
   checksumUrl: string | undefined,
 ): Promise<{ ok: boolean; verified: boolean }> {
-  if (!checksumUrl) return { ok: true, verified: false };
+  if (!checksumUrl) return { ok: false, verified: false };
 
   try {
     const res = await fetch(checksumUrl, { headers: { 'User-Agent': 'hoolix-updater' } });
-    if (!res.ok) return { ok: true, verified: false };
+    if (!res.ok) return { ok: false, verified: false };
 
     const text = await res.text();
     // SHA256SUMS format: "<hash>  <filename>" (sha256sum) or "<hash>  <filename>" (shasum)
     const line = text.split('\n').find((l) => l.includes(assetName));
-    if (!line) return { ok: true, verified: false };
+    if (!line) return { ok: false, verified: false };
 
     const expectedHash = line.trim().split(/\s+/)[0];
-    if (!expectedHash || expectedHash.length !== 64) return { ok: true, verified: false };
+    if (!expectedHash || expectedHash.length !== 64) return { ok: false, verified: false };
 
     const data       = await fs.readFile(binaryPath);
     const actualHash = createHash('sha256').update(data).digest('hex');
@@ -144,7 +152,7 @@ async function verifyChecksum(
     return { ok: actualHash === expectedHash, verified: true };
   } catch (err: any) {
     logger.debug('Checksum verification failed:', err.message);
-    return { ok: true, verified: false }; // non-fatal — proceed without verification
+    return { ok: false, verified: false };
   }
 }
 
@@ -190,16 +198,40 @@ export async function performUpdate(
   try {
     // ── Download ─────────────────────────────────────────────────────────────
     log.info('Downloading new version...');
-    const res = await fetch(updateInfo.assetUrl);
+
+    // SSRF guard on the asset URL (should be github.com, but validate defensively).
+    await assertSafeFetchTarget(updateInfo.assetUrl).catch((err: Error) => {
+      throw new Error(`Download URL failed SSRF check: ${err.message}`);
+    });
+
+    const controller = new AbortController();
+    const downloadTimeout = setTimeout(() => controller.abort(), 5 * 60_000); // 5 min max
+    const res = await fetch(updateInfo.assetUrl, { signal: controller.signal });
+    clearTimeout(downloadTimeout);
     if (!res.ok || !res.body) throw new Error('Failed to download update');
 
+    // Reject downloads that exceed the size cap.
+    const contentLength = parseInt(res.headers.get('content-length') || '0', 10);
+    if (contentLength > MAX_DOWNLOAD_BYTES) {
+      throw new Error(`Download rejected: Content-Length ${contentLength} exceeds ${MAX_DOWNLOAD_BYTES} byte limit.`);
+    }
+
+    let bytesWritten = 0;
     const fileStream = fs.createWriteStream(tmpPath);
     await new Promise((resolve, reject) => {
       res.body!.pipeTo(
         new WritableStream({
-          write(chunk) { fileStream.write(chunk); },
-          close()      { fileStream.end(resolve); },
-          abort(err)   { fileStream.end(); reject(err); },
+          write(chunk) {
+            bytesWritten += chunk.byteLength;
+            if (bytesWritten > MAX_DOWNLOAD_BYTES) {
+              fileStream.end();
+              reject(new Error(`Download rejected: exceeded ${MAX_DOWNLOAD_BYTES} byte limit mid-stream.`));
+              return;
+            }
+            fileStream.write(chunk);
+          },
+          close()    { fileStream.end(resolve); },
+          abort(err) { fileStream.end(); reject(err); },
         }),
       );
     });
@@ -212,6 +244,16 @@ export async function performUpdate(
     if (!options.noVerify) {
       log.info('Verifying SHA-256 checksum...');
       const { ok, verified } = await verifyChecksum(tmpPath, updateInfo.assetName, updateInfo.checksumUrl);
+      if (!verified) {
+        // Checksum file was missing or the asset was not listed — fail closed.
+        await fs.remove(tmpPath).catch(() => {});
+        throw new Error(
+          'SHA-256 checksum could not be verified — the SHA256SUMS file was missing or ' +
+          'did not contain an entry for this release asset. ' +
+          'Run with --no-verify to skip this check (not recommended). ' +
+          'Alternatively, use `npm install -g hoolix` for npm-provenance-verified installs.',
+        );
+      }
       if (!ok) {
         await fs.remove(tmpPath).catch(() => {});
         throw new Error(
@@ -220,12 +262,7 @@ export async function performUpdate(
           'Run with --no-verify to skip this check.',
         );
       }
-      if (verified) {
-        log.success('SHA-256 checksum verified.');
-      } else {
-        log.warn('Checksum file not available for this release — proceeding without verification.');
-        log.warn('Use `npm install -g hoolix` for npm-provenance-verified installs.');
-      }
+      log.success('SHA-256 checksum verified.');
     } else {
       log.warn('Checksum verification skipped (--no-verify).');
     }

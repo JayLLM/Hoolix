@@ -8,7 +8,10 @@ import { SUPPORTED_EMBEDDING_MODELS } from '../rag/models.js';
 import { ServerDefinitionSchema, type ServerDefinition } from '../sources/types.js';
 import { createLegacyServerDefinition } from '../sources/registry.js';
 
+export const METADATA_SCHEMA_VERSION = 1;
+
 export const ServerMetadataSchema = z.object({
+  schemaVersion: z.number().int().nonnegative().default(METADATA_SCHEMA_VERSION),
   name: z.string(),
   slug: z.string().regex(/^[a-z0-9-]{1,64}$/),
   sourceUrl: z.string().url(),
@@ -98,13 +101,23 @@ export async function getServerMetadata(slug: string): Promise<ServerMetadata> {
   }
   const raw = await fs.readJson(metaPath);
   const parsed = ServerMetadataSchema.parse(raw);
-  if (parsed.definition) return parsed;
 
-  const migrated: ServerMetadata = {
-    ...parsed,
-    definition: createLegacyServerDefinition(parsed.sourceUrl, parsed.sourceType),
-  };
-  await fs.writeJson(metaPath, migrated, { spaces: 2 }).catch(() => {});
+  // Migration: backfill schemaVersion and definition on older records.
+  let needsWrite = false;
+  let migrated: ServerMetadata = parsed;
+
+  if (!parsed.definition) {
+    migrated = { ...migrated, definition: createLegacyServerDefinition(parsed.sourceUrl, parsed.sourceType) };
+    needsWrite = true;
+  }
+  if ((parsed.schemaVersion ?? 0) < METADATA_SCHEMA_VERSION) {
+    migrated = { ...migrated, schemaVersion: METADATA_SCHEMA_VERSION };
+    needsWrite = true;
+  }
+
+  if (needsWrite) {
+    await fs.writeJson(metaPath, migrated, { spaces: 2 }).catch(() => {});
+  }
   return migrated;
 }
 
@@ -121,10 +134,11 @@ export async function saveServerMetadata(meta: ServerMetadata): Promise<void> {
   await saveRegistryIndex(index);
 }
 
-export async function registerServer(meta: Omit<ServerMetadata, 'createdAt' | 'lastUpdatedAt'>): Promise<ServerMetadata> {
+export async function registerServer(meta: Omit<ServerMetadata, 'createdAt' | 'lastUpdatedAt' | 'schemaVersion'>): Promise<ServerMetadata> {
   const now = new Date().toISOString();
 
   const full: ServerMetadata = {
+    schemaVersion: METADATA_SCHEMA_VERSION,
     ...meta,
     createdAt: now,
     lastUpdatedAt: now,

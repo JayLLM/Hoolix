@@ -391,6 +391,22 @@ Positive (UX, quality). Negative (size, complexity) + mitigation (lazy, docs, fl
 PR, issues, code paths, AGENTS sections.
 ```
 
+## Known Gaps & Non-goals (Security)
+
+These are intentional or known limitations that agents and contributors should not try to
+"fix" without an ADR — they are design trade-offs, not bugs.
+
+| Gap | Why it exists | What to do instead |
+|---|---|---|
+| Same-user process isolation | OS-level; out of scope for a CLI tool | Document; optional keychain integration behind `--use-keychain` flag |
+| Profile sandbox is not a hard boundary | Implemented as arg-filtering heuristic; hard isolation requires OS sandbox | Document in THREAT_MODEL.md; use explicit policy rules |
+| `isWriteTool` regex misses non-standard names | Convenience heuristic; full coverage would require a tool registry | Add explicit `policy.rules` for high-risk namespaces |
+| Log redaction is pattern-based | Novel credential formats not caught | Treat host.log as sensitive; do not log credentials in templates |
+| Rate limiter is not atomic under concurrency | In-memory; designed for flood protection not billing-grade enforcement | Acceptable for local-first use; note in docs |
+| Checksum file missing → update blocked (since v0.0.5) | Fail-closed is correct; missing checksum = can't verify = don't apply | Ensure SHA256SUMS is always uploaded in release workflow |
+| Token budget is char-based (4 chars ≈ 1 token) | Avoids heavy tokenizer dep in hot path | Use lazy tokenizer for hybrid servers in a future MINOR |
+| Windows credential file permissions rely on icacls | chmod is a no-op on Windows; icacls is best-effort | Document; acceptable for local-first tool |
+
 ## Questions? When Stuck
 
 1. Re-read the priorities at top of this file.

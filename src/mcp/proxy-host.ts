@@ -7,11 +7,13 @@
  *
  * Features:
  *   - Auto-restart on child exit (exponential backoff, max MAX_RESTARTS attempts)
+ *   - Restart counter resets after RESTART_RESET_MS of stable uptime
  *   - 30-second health ping to detect silent child hangs
  *   - SSE response wrapping: when client sends Accept: text/event-stream, the
  *     synchronous JSON-RPC response is streamed as an SSE event (phase 1 compatibility)
  *   - Batch JSON-RPC requests supported
  *   - Notifications (no id) forwarded without response
+ *   - No shell:true on Windows — cmd.exe is invoked directly with array args
  *
  * See AGENTS.md Rule 9 "Two-Kind Template System" and "Proxy Mode".
  */
@@ -27,6 +29,10 @@ import { getServerDataDir, getServerRuntimePath, getServerDir } from '../core/pa
 import { getServerMetadata } from '../core/registry.js';
 import { loadCredentials, interpolateRunConfig } from '../app/services/credentials.js';
 import { getTemplate } from '../app/services/catalog.js';
+import { timingSafeEqualString } from '../lib/auth.js';
+import { RateLimiter } from '../lib/rateLimiter.js';
+import { AuditLogger } from '../lib/auditLogger.js';
+import { redactSecrets } from '../lib/logRedact.js';
 
 export interface ProxyHostOptions {
   slug: string;
@@ -38,6 +44,8 @@ export interface ProxyHostOptions {
 const PROXY_REQUEST_TIMEOUT_MS = 30_000;
 const MAX_RESTARTS             = 5;
 const HEALTH_PING_INTERVAL_MS  = 30_000;
+/** Reset the restart counter after this many ms of consecutive stable uptime. */
+const RESTART_RESET_MS         = 5 * 60_000; // 5 minutes
 
 function maskSecret(value: string, visible = 6): string {
   if (!value) return '';
@@ -46,9 +54,28 @@ function maskSecret(value: string, visible = 6): string {
 }
 
 /**
+ * Resolve the correct command + args to spawn a child process on the current platform
+ * without shell interpolation.
+ *
+ * On Windows, `.cmd` scripts (like `npx.cmd`) need to be invoked via `cmd.exe /c`
+ * rather than via `shell: true`, which would allow cmd.exe to interpret metacharacters
+ * in the args string (e.g. `&`, `|`, `%VAR%`).
+ */
+function resolveSpawnArgs(
+  command: string,
+  args: string[],
+): { cmd: string; argv: string[]; shell: false } {
+  if (process.platform === 'win32' && command === 'npx') {
+    // Use cmd.exe /c with an explicit array — no shell interpolation of args.
+    return { cmd: 'cmd.exe', argv: ['/c', 'npx.cmd', ...args], shell: false };
+  }
+  return { cmd: command, argv: args, shell: false };
+}
+
+/**
  * Manages a persistent stdio child process with JSON-RPC request/response multiplexing.
  * Auto-restarts on unexpected child exit (exponential backoff, max MAX_RESTARTS).
- * Responses are matched to pending requests by JSON-RPC id.
+ * Restart counter resets after RESTART_RESET_MS of stable uptime.
  */
 class StdioJsonRpcProxy {
   private child: ChildProcess | null = null;
@@ -56,6 +83,7 @@ class StdioJsonRpcProxy {
   private pending = new Map<string | number, (msg: unknown) => void>();
   private _dead = false;
   private restartCount = 0;
+  private stableTimer: ReturnType<typeof setTimeout> | null = null;
   private healthTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
@@ -70,31 +98,28 @@ class StdioJsonRpcProxy {
     // 30-second health monitoring: send ping → expect pong or any response
     this.healthTimer = setInterval(() => {
       if (!this.isAlive) return;
-      // Fire-and-forget: if ping hangs for >timeout, the pending map cleans up
       this.send({ jsonrpc: '2.0', id: `__health-${Date.now()}`, method: 'ping', params: {} })
         .catch(() => {
           // ping failure is expected for servers that don't implement ping
         });
     }, HEALTH_PING_INTERVAL_MS);
 
-    // Don't let health timer prevent process exit
     if (this.healthTimer.unref) this.healthTimer.unref();
   }
 
   private async _spawnChild(): Promise<void> {
-    // On Windows, bare 'npx' needs shell resolution
-    const isWindowsNpx = process.platform === 'win32' && this.command === 'npx';
-    const cmd = isWindowsNpx ? 'npx.cmd' : this.command;
+    const { cmd, argv, shell } = resolveSpawnArgs(this.command, this.args);
 
-    this.child = spawn(cmd, this.args, {
+    this.child = spawn(cmd, argv, {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, ...this.env },
-      shell: isWindowsNpx,
+      shell,
     });
 
-    // Pipe child stderr to the proxy-host's stderr (→ host.log via manager redirection)
+    // Redact secrets from child stderr before writing to host.log
     this.child.stderr?.on('data', (data: Buffer) => {
-      process.stderr.write(`[child] ${data}`);
+      const text = data.toString('utf8');
+      process.stderr.write(`[child] ${redactSecrets(text)}`);
     });
 
     this.rl = readline.createInterface({ input: this.child.stdout! });
@@ -119,6 +144,7 @@ class StdioJsonRpcProxy {
 
     this.child.on('exit', (exitCode, exitSignal) => {
       logger.error(`Proxy child exited: code=${exitCode ?? 'null'}, signal=${exitSignal ?? 'null'}`);
+      if (this.stableTimer) { clearTimeout(this.stableTimer); this.stableTimer = null; }
       this.rl?.close();
       this._tryRestart(exitCode, exitSignal);
     });
@@ -129,13 +155,21 @@ class StdioJsonRpcProxy {
     if (this._dead) {
       throw new Error('Proxy child exited immediately. Check host.log for details.');
     }
+
+    // Schedule restart-counter reset after stable uptime
+    this.stableTimer = setTimeout(() => {
+      if (!this._dead) {
+        this.restartCount = 0;
+        logger.debug(`Proxy child for "${this.command}" has been stable; restart counter reset.`);
+      }
+    }, RESTART_RESET_MS);
+    this.stableTimer.unref?.();
   }
 
   private _tryRestart(_code: number | null, _signal: string | null): void {
     if (this.restartCount >= MAX_RESTARTS) {
       logger.error(`Proxy child has exited ${MAX_RESTARTS} times — giving up. Proxy will remain in degraded state.`);
       this._dead = true;
-      // Fail all pending requests
       const err = { jsonrpc: '2.0', id: null, error: { code: -32000, message: 'Server process exited after too many restarts' } };
       for (const [, resolve] of this.pending) resolve(err);
       this.pending.clear();
@@ -206,6 +240,7 @@ class StdioJsonRpcProxy {
   kill(): void {
     try {
       if (this.healthTimer) clearInterval(this.healthTimer);
+      if (this.stableTimer) clearTimeout(this.stableTimer);
       this._dead = true;
       this.rl?.close();
       if (this.child && !this.child.killed) this.child.kill('SIGTERM');
@@ -215,11 +250,6 @@ class StdioJsonRpcProxy {
 
 // ── SSE helper ────────────────────────────────────────────────────────────────
 
-/**
- * Wrap a JSON-RPC response in SSE format for clients that send
- * `Accept: text/event-stream`. Per Streamable HTTP spec phase 1:
- * single response sent as `data:` event, then stream closed.
- */
 function jsonRpcToSSE(response: unknown): Response {
   const encoder = new TextEncoder();
   const json = JSON.stringify(response);
@@ -241,6 +271,14 @@ function jsonRpcToSSE(response: unknown): Response {
 
 export async function startProxyHost(opts: ProxyHostOptions): Promise<void> {
   const { slug, port, authKey, bindHost = '127.0.0.1' } = opts;
+
+  // Catch-all so a child crash path can't bring down the proxy process.
+  process.on('unhandledRejection', (reason) => {
+    logger.error(`Unhandled rejection in proxy "${slug}": ${reason instanceof Error ? reason.stack || reason.message : String(reason)}`);
+  });
+  process.on('uncaughtException', (err) => {
+    logger.error(`Uncaught exception in proxy "${slug}": ${err.stack || err.message}`);
+  });
 
   logger.info(`Starting proxy host for "${slug}" on ${bindHost}:${port}`);
 
@@ -272,46 +310,17 @@ export async function startProxyHost(opts: ProxyHostOptions): Promise<void> {
   await proxy.start();
   logger.info(`Proxy child started (pid=${proxy.childPid ?? 'unknown'}, template=${templateId})`);
 
-  // ── Rate limiter (matches host.ts exactly) ─────────────────────────────────
+  // ── In-memory rate limiter with periodic persistence ───────────────────────
   const RATE_LIMIT     = Math.max(1, parseInt(process.env.MCP_RATE_LIMIT || '120', 10));
   const RATE_WINDOW_MS = Math.max(1000, parseInt(process.env.MCP_RATE_WINDOW_SEC || '60', 10) * 1000);
   const rateStatePath  = path.join(getServerDataDir(slug), 'rate-state.json');
-  let reqCount    = 0;
-  let windowStart = Date.now();
-  try {
-    const state = await fs.readJson(rateStatePath);
-    if (typeof state.windowStart === 'number' && typeof state.reqCount === 'number') {
-      reqCount    = state.reqCount;
-      windowStart = state.windowStart;
-    }
-  } catch {}
-  async function saveRateState(): Promise<void> {
-    await fs.writeJson(rateStatePath, { windowStart, reqCount, limit: RATE_LIMIT, windowMs: RATE_WINDOW_MS }).catch(() => {});
-  }
-  async function checkRateLimit(): Promise<boolean> {
-    const now = Date.now();
-    if (now - windowStart > RATE_WINDOW_MS) { reqCount = 0; windowStart = now; }
-    reqCount += 1;
-    await saveRateState();
-    return reqCount <= RATE_LIMIT;
-  }
+  const rateLimiter = new RateLimiter(RATE_LIMIT, RATE_WINDOW_MS, rateStatePath);
+  await rateLimiter.init();
 
-  // ── Audit (matches host.ts exactly) ─────────────────────────────────────────
-  const auditPath      = path.join(getServerDataDir(slug), 'audit.log');
-  const MAX_AUDIT_LINES = 5000;
-  async function audit(tool: string, details: Record<string, unknown>) {
-    try {
-      const line = JSON.stringify({ ts: new Date().toISOString(), tool, transport: 'proxy', ...details }) + '\n';
-      await fs.appendFile(auditPath, line).catch(() => {});
-      try {
-        const content = await fs.readFile(auditPath, 'utf8').catch(() => '');
-        const lines   = content.split('\n').filter(Boolean);
-        if (lines.length > MAX_AUDIT_LINES) {
-          await fs.writeFile(auditPath, lines.slice(-Math.floor(MAX_AUDIT_LINES * 0.8)).join('\n') + '\n').catch(() => {});
-        }
-      } catch {}
-    } catch {}
-  }
+  // ── Audit logger with in-memory counting and atomic rotation ────────────────
+  const auditPath = path.join(getServerDataDir(slug), 'audit.log');
+  const auditLogger = new AuditLogger(auditPath);
+  await auditLogger.init();
 
   // ── Hono HTTP server ─────────────────────────────────────────────────────────
   const app = new Hono();
@@ -326,20 +335,20 @@ export async function startProxyHost(opts: ProxyHostOptions): Promise<void> {
     });
   });
 
-  // Auth + rate-limit middleware
+  // Auth + rate-limit middleware. Timing-safe bearer compare.
   app.use('/mcp', async (c, next) => {
     const authHeader = c.req.header('Authorization');
     const headerKey  =
-      authHeader?.startsWith('Bearer ') || authHeader?.startsWith('bearer ')
+      (authHeader?.startsWith('Bearer ') || authHeader?.startsWith('bearer '))
         ? authHeader.replace(/^Bearer\s+/i, '')
         : c.req.header('X-MCP-Key');
 
-    if (!headerKey || headerKey !== authKey) {
+    if (!headerKey || !timingSafeEqualString(headerKey, authKey)) {
       return c.json({ error: 'Unauthorized. Provide valid Authorization: Bearer <key> or X-MCP-Key header.' }, 401);
     }
-    if (!(await checkRateLimit())) {
-      await audit('rate_limited', { limit: RATE_LIMIT, windowSec: Math.floor(RATE_WINDOW_MS / 1000) });
-      c.header('Retry-After', String(Math.ceil(RATE_WINDOW_MS / 1000)));
+    if (!rateLimiter.check()) {
+      await auditLogger.write('rate_limited', { limit: RATE_LIMIT, windowSec: Math.floor(RATE_WINDOW_MS / 1000) });
+      c.header('Retry-After', String(rateLimiter.retryAfterSeconds()));
       return c.json({ error: 'Rate limit exceeded. Try again later.' }, 429);
     }
     await next();
@@ -361,7 +370,6 @@ export async function startProxyHost(opts: ProxyHostOptions): Promise<void> {
       return c.json({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error — invalid JSON body' } }, 400);
     }
 
-    // Detect SSE preference (Streamable HTTP spec: client may send Accept: text/event-stream)
     const acceptHeader = c.req.header('Accept') ?? '';
     const preferSSE    = acceptHeader.includes('text/event-stream');
 
@@ -369,7 +377,7 @@ export async function startProxyHost(opts: ProxyHostOptions): Promise<void> {
       if (Array.isArray(body)) {
         const responses = await Promise.all(
           (body as any[]).map(async (req) => {
-            await audit('proxy_request', { method: req?.method, id: req?.id });
+            await auditLogger.write('proxy_request', { method: req?.method, id: req?.id });
             return proxy.send(req);
           }),
         );
@@ -379,13 +387,13 @@ export async function startProxyHost(opts: ProxyHostOptions): Promise<void> {
       }
 
       const req = body as any;
-      await audit('proxy_request', { method: req?.method, id: req?.id });
+      await auditLogger.write('proxy_request', { method: req?.method, id: req?.id });
       const response = await proxy.send(req);
       if (response === null) return new Response(null, { status: 204 });
       if (preferSSE) return jsonRpcToSSE(response);
       return c.json(response);
     } catch (e: any) {
-      await audit('proxy_error', { reason: e?.message || String(e) });
+      await auditLogger.write('proxy_error', { reason: e?.message || String(e) });
       const errResponse = {
         jsonrpc: '2.0',
         id:      (body as any)?.id ?? null,
@@ -396,22 +404,14 @@ export async function startProxyHost(opts: ProxyHostOptions): Promise<void> {
     }
   });
 
-  // ── Runtime marker (same format as host.ts + extra proxy fields) ─────────────
   const runtimePath = getServerRuntimePath(slug);
-  await fs.writeJson(runtimePath, {
-    pid:       process.pid,
-    port,
-    startedAt: new Date().toISOString(),
-    status:    'running',
-    mode:      'proxy',
-    childPid:  proxy.childPid,
-    template:  templateId,
-  }, { spaces: 2 });
 
-  // ── Graceful shutdown ─────────────────────────────────────────────────────────
+  // Graceful shutdown: flush rate state before exit.
   const shutdown = async () => {
     logger.info(`Shutting down proxy host for "${slug}"…`);
     proxy.kill();
+    rateLimiter.stop();
+    await rateLimiter.flush().catch(() => {});
     try { await fs.remove(runtimePath); } catch {}
     process.exit(0);
   };
@@ -422,5 +422,22 @@ export async function startProxyHost(opts: ProxyHostOptions): Promise<void> {
   logger.info(`Auth header required: Authorization: Bearer ${maskSecret(authKey)}`);
   logger.info(`Auto-restart enabled: max ${MAX_RESTARTS} attempts with exponential backoff`);
 
-  serve({ fetch: app.fetch, port, hostname: bindHost });
+  // Bind first, then write .runtime.json so callers can trust the port is actually live.
+  const nodeServer = serve({ fetch: app.fetch, port, hostname: bindHost });
+
+  await new Promise<void>((resolve, reject) => {
+    (nodeServer as any).once('listening', () => resolve());
+    (nodeServer as any).once('error', (err: Error) => reject(err));
+    if ((nodeServer as any).listening) resolve();
+  });
+
+  await fs.writeJson(runtimePath, {
+    pid:       process.pid,
+    port,
+    startedAt: new Date().toISOString(),
+    status:    'running',
+    mode:      'proxy',
+    childPid:  proxy.childPid,
+    template:  templateId,
+  }, { spaces: 2 });
 }

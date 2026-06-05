@@ -15,9 +15,9 @@ import fs from 'fs-extra';
 import path from 'node:path';
 import net from 'node:net';
 import { randomBytes } from 'node:crypto';
-import { execSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { buildDashboardHtml } from './assets.js';
-import { generateAuthKey } from '../lib/auth.js';
+import { generateAuthKey, timingSafeEqualString } from '../lib/auth.js';
 import { getTemplate, listTemplates } from '../app/services/catalog.js';
 import {
   createServer,
@@ -45,13 +45,36 @@ function generateGuiToken(): string {
 async function getOrCreateGuiToken(): Promise<string> {
   await ensureDirectories();
   const p = path.join(getPaths().data, GUI_TOKEN_FILE);
-  if (await fs.pathExists(p)) {
+  const tokenExists = await fs.pathExists(p);
+  if (tokenExists) {
     const t = (await fs.readFile(p, 'utf8')).trim();
-    if (t) return t;
+    if (t) {
+      // Ensure permissions are tight even on an existing file.
+      await fs.chmod(p, 0o600).catch(() => {});
+      return t;
+    }
   }
   const token = generateGuiToken();
   await fs.writeFile(p, token, { mode: 0o600 });
+  // On Windows chmod is a no-op; tighten with icacls if available.
+  if (process.platform === 'win32') {
+    tightenFileAclWin(p).catch(() => {});
+  }
   return token;
+}
+
+/** Remove inherited ACL entries and restrict the file to the current user only. */
+async function tightenFileAclWin(filePath: string): Promise<void> {
+  const username = process.env.USERNAME || process.env.USER || '';
+  if (!username) return;
+  await new Promise<void>((resolve) => {
+    const child = spawn('icacls', [filePath, '/inheritance:r', '/grant:r', `${username}:(R,W)`], {
+      stdio: 'ignore',
+      shell: false,
+    });
+    child.on('close', () => resolve());
+    child.on('error', () => resolve()); // icacls missing is non-fatal
+  });
 }
 
 function maskSecret(value: string, visible = 6): string {
@@ -67,20 +90,22 @@ function maskServerMetadata<T extends { authKey?: string }>(meta: T): T {
   };
 }
 
-function openBrowser(url: string) {
-  const platform = process.platform;
-  let cmd: string;
-  if (platform === 'win32') {
-    cmd = `start "" "${url.replace(/"/g, '\\"')}"`;
-  } else if (platform === 'darwin') {
-    cmd = `open "${url.replace(/"/g, '\\"')}"`;
-  } else {
-    cmd = `xdg-open "${url.replace(/"/g, '\\"')}"`;
-  }
+/**
+ * Open the browser without shell interpolation.
+ * Avoids execSync with a URL string which is vulnerable to metachar injection on Windows.
+ */
+function openBrowser(url: string): void {
   try {
-    execSync(cmd, { stdio: 'ignore' });
+    if (process.platform === 'win32') {
+      // Use cmd.exe /c start with explicit array args — no shell interpolation.
+      spawn('cmd.exe', ['/c', 'start', '', url], { stdio: 'ignore', shell: false }).unref();
+    } else if (process.platform === 'darwin') {
+      spawn('open', [url], { stdio: 'ignore', shell: false }).unref();
+    } else {
+      spawn('xdg-open', [url], { stdio: 'ignore', shell: false }).unref();
+    }
   } catch {
-    // ignore
+    // Browser open failure is non-fatal.
   }
 }
 
@@ -116,14 +141,24 @@ export async function resolveGuiPort(host: string, requestedPort: number, strict
 function createApp(token: string) {
   const app = new Hono();
 
-  // Auth middleware for protected API
+  // Security headers on all responses.
+  app.use('*', async (c, next) => {
+    await next();
+    c.header('Referrer-Policy', 'no-referrer');
+    c.header('X-Content-Type-Options', 'nosniff');
+    c.header('X-Frame-Options', 'DENY');
+  });
+
+  // Auth middleware for protected API. Uses timing-safe comparison.
+  // Accepts Authorization: Bearer <token> header (sent by the dashboard JS).
+  // Also accepts ?token= for backwards-compat with direct API calls.
   app.use('/api/*', async (c, next) => {
     const provided =
-      c.req.query('token') ||
       c.req.header('authorization')?.replace(/^Bearer\s+/i, '') ||
+      c.req.query('token') ||
       '';
-    if (provided !== token) {
-      return c.json({ error: 'Unauthorized. Provide ?token= or Authorization: Bearer <gui-token>' }, 401);
+    if (!timingSafeEqualString(provided, token)) {
+      return c.json({ error: 'Unauthorized. Provide Authorization: Bearer <gui-token>' }, 401);
     }
     return await next();
   });
@@ -358,10 +393,12 @@ function createApp(token: string) {
     return c.text(await getServerLogTail(slug, 8000));
   });
 
-  // Root UI
+  // Root UI — token is embedded in a <meta> tag so the JS can use it without it
+  // ever appearing in the URL bar or browser history.
   app.get('/', (c) => {
-    const t = c.req.query('token') || '';
-    return c.html(buildDashboardHtml(t));
+    c.header('Cache-Control', 'no-store');
+    c.header('Referrer-Policy', 'no-referrer');
+    return c.html(buildDashboardHtml(token));
   });
 
   return app;
@@ -379,22 +416,22 @@ export async function launchWebGui(opts: { port?: number; host?: string; open?: 
 
   const port = await resolveGuiPort(host, requestedPort, opts.strictPort === true);
   const urlBase = `http://${host}:${port}`;
-  const fullUrl = `${urlBase}/?token=${token}`;
-  const displayUrl = `${urlBase}/?token=${maskSecret(token)}`;
+  // Token is NOT in the URL — it is embedded in the dashboard HTML via a <meta> tag.
+  const openUrl = urlBase + '/';
 
   logger.info(`Starting Hoolix Web GUI`);
   console.log(`\n◆ Hoolix Web GUI (beta)`);
   if (port !== requestedPort) {
     console.log(`  Port ${requestedPort} is in use; using ${port} instead.`);
   }
-  console.log(`  Open: ${displayUrl}`);
+  console.log(`  Open: ${openUrl}`);
   if (host !== '127.0.0.1') {
     console.log(`  WARNING: Listening on ${host}. Protect this port!`);
   }
   console.log(`  Token: ${maskSecret(token)} (full token is stored in your local hoolix data directory)`);
 
   if (shouldOpen) {
-    openBrowser(fullUrl);
+    openBrowser(openUrl);
   }
 
   const app = createApp(token);

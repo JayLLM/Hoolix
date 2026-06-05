@@ -3,7 +3,7 @@ import fs from 'fs-extra';
 import path from 'node:path';
 import { ensureDirectories, getPaths, getProfileConfigPath, getProfileDir } from './paths.js';
 import { slugify } from './registry.js';
-import { generateAuthKey } from '../lib/auth.js';
+import { generateAuthKey, timingSafeEqualString } from '../lib/auth.js';
 
 export const PolicyRuleSchema = z.object({
   match: z.string().min(1),
@@ -148,7 +148,7 @@ export async function getProfile(slug: string): Promise<Profile> {
 
 export async function findProfileByAuthKey(authKey: string): Promise<Profile | null> {
   const profiles = await listProfiles();
-  return profiles.find((profile) => profile.authKey === authKey) ?? null;
+  return profiles.find((profile) => timingSafeEqualString(profile.authKey, authKey)) ?? null;
 }
 
 export async function listProfiles(): Promise<Profile[]> {

@@ -1,11 +1,15 @@
-export function buildDashboardHtml(_initialToken: string): string {
+export function buildDashboardHtml(token: string): string {
   // Self-contained local dashboard; CSS and client JS are bundled into this module.
-  // Functional dashboard: list, create, templates, trial, stats, start/stop, reindex, verify, playground, delete, logs tail.
+  // The token is embedded in a <meta> tag so it never appears in the URL bar,
+  // browser history, Referrer headers, or server access logs.
+  // The JS reads it from the meta tag and sends it as Authorization: Bearer.
+  const escapedToken = token.replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="hoolix-token" content="${escapedToken}">
   <title>Hoolix • Local Dashboard</title>
   <style>
     :root { --accent: #7dd3fc; color-scheme: dark; }
@@ -241,22 +245,16 @@ export function buildDashboardHtml(_initialToken: string): string {
   </div>
 
   <script>
-    let CURRENT_TOKEN = new URLSearchParams(location.search).get('token') || '';
+    // Token is read from a <meta> tag injected server-side — never from the URL bar.
+    // API calls send it as Authorization: Bearer so the token never appears in URLs,
+    // browser history, server access logs, or Referrer headers.
+    const CURRENT_TOKEN = (document.querySelector('meta[name="hoolix-token"]') || {}).content || '';
     let SERVERS = [];
     let TEMPLATES = [];
     let POLL_INTERVAL = null;
 
     function tailwindInit() {
       document.documentElement.style.setProperty('--accent', '#7dd3fc');
-    }
-
-    function setToken(t) {
-      CURRENT_TOKEN = t;
-      if (t && !location.search.includes('token=')) {
-        const u = new URL(location.href);
-        u.searchParams.set('token', t);
-        history.replaceState({}, '', u.toString());
-      }
     }
 
     function copyToken() {
@@ -285,11 +283,11 @@ export function buildDashboardHtml(_initialToken: string): string {
     }
 
     async function api(path, opts = {}) {
-      const url = path + (path.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(CURRENT_TOKEN);
-      const res = await fetch(url, {
+      const res = await fetch(path, {
         ...opts,
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + CURRENT_TOKEN,
           ...(opts.headers || {})
         }
       });
