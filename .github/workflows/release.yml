@@ -188,7 +188,7 @@ jobs:
           echo "Full smoke passed"
 
       - name: Upload binary artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.binary-name }}
           path: dist-bin/${{ matrix.binary-name }}${{ matrix.ext }}
