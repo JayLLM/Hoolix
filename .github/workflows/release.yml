@@ -294,7 +294,7 @@ jobs:
             --output-file hoolix-sbom.cdx.json \
             --omit dev
           echo "SBOM generated:"
-          cat hoolix-sbom.cdx.json | head -30
+          head -30 hoolix-sbom.cdx.json
 
       - name: Download all binary artifacts
         uses: actions/download-artifact@v8
