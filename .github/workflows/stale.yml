@@ -1,0 +1,41 @@
+name: Mark stale issues and pull requests
+
+on:
+  schedule:
+    - cron: "22 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    name: Label and close inactive threads
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mark stale issues and pull requests
+        uses: actions/stale@v9
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          stale-issue-label: stale
+          stale-pr-label: stale
+          days-before-issue-stale: 45
+          days-before-issue-close: 15
+          days-before-pr-stale: 21
+          days-before-pr-close: 9
+          operations-per-run: 100
+          remove-stale-when-updated: true
+          exempt-issue-labels: pinned,security,blocked,help wanted,good first issue
+          exempt-pr-labels: pinned,security,blocked,work in progress
+          stale-issue-message: |
+            This issue has been quiet for 45 days, so it is being marked stale.
+            Add a comment with current reproduction details or next steps to keep it open.
+          close-issue-message: |
+            Closing after 60 days of inactivity. If this still reproduces on the latest Hoolix release,
+            please open a fresh issue with updated `hoolix doctor` output and logs.
+          stale-pr-message: |
+            This pull request has been quiet for 21 days, so it is being marked stale.
+            Add a comment or push an update if it is still active.
+          close-pr-message: |
+            Closing after 30 days of inactivity. We still welcome a fresh, focused PR when you are ready.

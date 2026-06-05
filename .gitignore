@@ -13,6 +13,8 @@ pnpm-lock.yaml
 # Build outputs
 dist/
 dist-bin/
+docs/build/
+docs/.docusaurus/
 *.tsbuildinfo
 *.js.map
 *.d.ts.map
@@ -50,6 +52,7 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+*.local
 *.pem
 *.key
 

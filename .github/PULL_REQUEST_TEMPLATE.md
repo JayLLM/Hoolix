@@ -9,17 +9,23 @@ Why? Link to issue or discussion.
 - Tests/docs updated? (required)
 
 ## Testing
-- `bun test` + `npx tsc --noEmit`
-- Binary smoke: `bun run build:binary && ./dist-bin/hoolix doctor`
-- Manual: create + verify + start + connect for the affected flow
-- Windows? (if relevant)
+- [ ] `npm run typecheck`
+- [ ] `npm test`
+- [ ] `npm run test:e2e` (for CLI/TUI/host/gateway/process changes)
+- [ ] Binary smoke: `bun run build:binary && ./dist-bin/hoolix doctor` (for distribution changes)
+- [ ] Windows path/process behavior reviewed or tested, if relevant
 
 ## Docs
-- README / guides / architecture updated?
-- New command? Added to help + examples + connecting guide.
+- [ ] README / guides / architecture updated
+- [ ] CLI help and shell completions updated for new commands or flags
+- [ ] CHANGELOG.md updated under Unreleased
 
 ## Breaking?
 - Backward compatible? (yes / describe migration)
+
+## Security / Privacy
+- [ ] No credentials, auth headers, approval payloads, or private paths are logged or committed
+- [ ] Gateway/profile/approval changes enforce policy before forwarding tool calls
 
 ## Screenshots / Logs (if UI or TUI)
 (Attach if helpful)

@@ -1,0 +1,10 @@
+# Default owner for all repository changes. Update as maintainers are added.
+/* @JayLLM
+
+# Release, packaging, and security-sensitive paths.
+/.github/ @JayLLM
+/bin/ @JayLLM
+/src/mcp/ @JayLLM
+/src/process/ @JayLLM
+/install.sh @JayLLM
+/install.ps1 @JayLLM

@@ -415,7 +415,16 @@ See [AGENTS.md](./AGENTS.md) for architecture rules, contribution expectations, 
 
 ## Contributing
 
-Contributions are welcome. Please open an issue for substantial changes, keep PRs focused, run tests, and update documentation alongside behavior changes.
+Contributions are welcome. Please start with an issue or discussion for substantial changes,
+keep PRs focused, run tests, and update documentation alongside behavior changes.
+
+Use the GitHub templates so reports include the details Hoolix needs:
+
+- [Bug reports](./.github/ISSUE_TEMPLATE/bug_report.md): include sanitized `hoolix doctor --json`, logs, OS, install method, and MCP client.
+- [Feature requests](./.github/ISSUE_TEMPLATE/feature_request.md): describe the workflow, security impact, and alternatives.
+- [Pull requests](./.github/PULL_REQUEST_TEMPLATE.md): link the issue, list tests, update docs, and note Windows/binary coverage when relevant.
+
+Please report suspected vulnerabilities through [SECURITY.md](./SECURITY.md), not public issues.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) and [AGENTS.md](./AGENTS.md).
 

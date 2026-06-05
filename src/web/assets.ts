@@ -306,7 +306,7 @@ export function buildDashboardHtml(_initialToken: string): string {
         SERVERS = servers;
         renderServers(servers);
       } catch (e) {
-        console.error(e);
+        showToast('Could not refresh servers: ' + e.message);
       }
     }
 
