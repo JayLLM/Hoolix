@@ -61,7 +61,8 @@ export async function assertSafeFetchTarget(urlStr: string): Promise<void> {
     throw new Error(`SSRF guard: blocked scheme "${parsed.protocol}" — only http/https allowed`);
   }
 
-  const hostname = parsed.hostname.toLowerCase().replace(/\.$/, ''); // strip trailing dot
+  // Strip trailing dot (DNS FQDN) and IPv6 brackets so isPrivateIp patterns match.
+  const hostname = parsed.hostname.toLowerCase().replace(/\.$/, '').replace(/^\[|\]$/g, '');
 
   if (BLOCKED_HOSTNAMES.has(hostname)) {
     throw new Error(`SSRF guard: blocked hostname "${hostname}"`);
