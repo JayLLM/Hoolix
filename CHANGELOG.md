@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Fix's release error
+
 ## [0.0.6] - 2026-06-05
 
 ### Security — Phase 2 test coverage & supply chain (v0.0.5 polish sprint)
