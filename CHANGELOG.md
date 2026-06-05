@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Unified local MCP control plane** — added the `hoolix gateway` command family to create, list, start, stop, and connect one authenticated Streamable HTTP gateway that aggregates multiple configured `mcp-server` backends behind a single endpoint.
+- **Namespaced gateway tools** — gateway tool discovery now rewrites backing server tools as `<namespace>.<tool>` (for example `github.search_issues`, `filesystem.read_file`, `memory.create_entities`) and forwards calls to the correct stdio MCP server.
+- **Client profiles** — added `hoolix profile create|list|edit|delete` for per-agent identities with profile-specific bearer tokens, allowed gateway/tool patterns, approval modes, policy rules, and basic sandbox boundaries.
+- **Human approval queue** — added `hoolix approvals list|approve|deny`; profile-scoped gateway calls that require approval are queued, return a pending approval response, and execute on retry after approval.
+- **Basic gateway policy engine** — gateway calls are evaluated before forwarding with wildcard rules (`allow`, `deny`, `approve`), write-operation defaults, filesystem path boundaries, and network domain allow/block lists.
+- **Gateway/profile-aware TUI** — the terminal dashboard now shows servers, gateways, profiles, pending approvals, gateway backend details, and quick approval actions (`a` approve, `A` deny).
+
+### Changed
+
+- **`hoolix gateway connect`** now accepts `--profile <name>` and emits a profile-scoped HTTP config for Codex, Claude Code, Cursor, Grok Build, and other MCP-compatible clients.
+- **`hoolix list` and `hoolix doctor`** now report gateway, profile, and pending approval state alongside existing server/proxy health.
+- **Shell completions and help text** now include gateway, profile, approval, and profile-aware connect workflows.
+- **AGENTS.md and docs** now describe gateway/profile/approval invariants, storage locations, and control-plane architecture.
+
+### Fixed
+
+- **Windows `npx` stdio spawning** — proxy and gateway child processes now launch `npx.cmd` through the Windows shell to avoid `spawn EINVAL` on recent Node builds.
+
 ## [0.0.2] - 2026-06-05
 
 ### Added
