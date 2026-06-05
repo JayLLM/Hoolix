@@ -9,7 +9,7 @@
 
 > Your MCP home base. Zero config for the official servers. Production-grade hosting, credentials, and sharing for everything else.
 
-Hoolix helps developers and teams create high-quality RAG-backed MCP servers from real sources, and install curated MCP server templates (filesystem, GitHub, Postgres, Brave Search, Slack, and more) in a single command. Every answer is grounded with source URLs, transports support Streamable HTTP and stdio, and you get the full daily toolkit: create, verify, start, connect, reindex, monitor, bundle, export, and share.
+Hoolix helps developers and teams create high-quality RAG-backed MCP servers from real sources, install curated MCP server templates (filesystem, GitHub, Postgres, Brave Search, Slack, and more), and aggregate them into one local MCP gateway. Every answer is grounded with source URLs, transports support Streamable HTTP and stdio, and you get the full daily toolkit: create, verify, start, connect, gateway, reindex, monitor, bundle, export, and share.
 
 ## Why Hoolix?
 
@@ -22,6 +22,7 @@ Agents are only as useful as the context they can reliably reach. Copy-pasted do
 | Popular MCP server templates | `hoolix install fetch`, `filesystem`, `github-api`, `postgres`, `brave-search`, `slack`, and 9 more |
 | Flexible source models | Single URLs, multi-source definitions, GitHub repos, private docs, and custom source plugins |
 | Real MCP hosting | Authenticated Streamable HTTP plus stdio; proxy mode wraps any stdio server behind HTTP |
+| Unified gateway | `hoolix gateway` exposes many configured MCP servers through one authenticated endpoint |
 | Team workflows | Usage stats, audit logs, multi-server bundles, and sanitized exports |
 | Power-user automation | `--json` across machine-friendly commands, shell completions, scheduled reindexing, and scriptable lifecycle |
 
@@ -142,6 +143,18 @@ hoolix connect my-github --client claude
 
 Supported client targets include Cursor, Claude Desktop, Claude Code, VS Code, Windsurf, Continue, Cline, Grok Build, and generic JSON output. `connect` creates backups before editing client config files.
 
+### One Gateway For Every Agent
+
+After installing and configuring template-backed MCP servers, create one local gateway that agents can share:
+
+```bash
+hoolix gateway create my-tools --include github --include filesystem --include brave-search
+hoolix gateway start my-tools
+hoolix gateway connect my-tools --client codex
+```
+
+The gateway runs a single authenticated Streamable HTTP MCP endpoint, lists tools with namespaces such as `github.search_issues` and `filesystem.read_file`, and writes gateway audit/rate-limit data separately from backing servers.
+
 ### 5. Ask Your Agent
 
 ```text
@@ -212,6 +225,9 @@ hoolix create "Private Docs" \
 | `hoolix start <slug>` | Start authenticated Streamable HTTP MCP hosting |
 | `hoolix start <slug> --proxy` | Proxy an mcp-server over authenticated HTTP |
 | `hoolix connect <slug> --client cursor` | Wire the server into an MCP client |
+| `hoolix gateway create <name> --include <slug>` | Aggregate configured mcp-server instances behind one endpoint |
+| `hoolix gateway start <name>` | Start the unified gateway HTTP host |
+| `hoolix gateway connect <name> --client codex` | Wire any MCP client to the single gateway |
 | `hoolix secrets set <slug> <key>` | Store or rotate a credential (masked, 0600) |
 | `hoolix reindex <slug>` | Refresh sources and rebuild the index |
 | `hoolix bundle export <slugs…>` | Export multiple servers into one bundle |

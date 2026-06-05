@@ -136,6 +136,28 @@ Supported clients: `claude`, `claude-code`, `cursor`, `vscode`, `windsurf`, `con
 
 Supported clients get backup + merge behavior. Generic mode emits JSON only. Use `--dry-run` to preview without writing.
 
+If `<slug>` is a gateway, `connect` automatically emits the gateway's single Streamable HTTP endpoint.
+
+## gateway
+
+```bash
+hoolix gateway create <name> --include <server-slug> --include <server-slug> [--json]
+hoolix gateway list [--json]
+hoolix gateway start <name> [--port <n>] [--json]
+hoolix gateway stop <name> [--json]
+hoolix gateway connect <name> --client <target> [--project] [--dry-run] [--json]
+```
+
+Creates and runs a unified local MCP gateway. A gateway aggregates configured `mcp-server` instances into one authenticated Streamable HTTP MCP endpoint.
+
+```bash
+hoolix gateway create my-tools --include github --include filesystem --include brave-search
+hoolix gateway start my-tools
+hoolix gateway connect my-tools --client codex
+```
+
+Gateway tools are namespaced as `<namespace>.<tool>`, such as `github.search_issues` or `filesystem.read_file`. Credentials remain on the backing servers; gateway config stores backend slugs, namespaces, and a separate gateway auth key.
+
 ## clients
 
 ```bash

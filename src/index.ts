@@ -24,6 +24,7 @@ export { generateAuthKey } from './lib/auth.js';
 // These modules are only executed when the corresponding __internal-* flag is present.
 import { startHostedServer, type HostOptions } from './mcp/host.js';
 import { startProxyHost, type ProxyHostOptions } from './mcp/proxy-host.js';
+import { startGatewayHost, type GatewayHostOptions } from './mcp/gateway-host.js';
 
 async function main() {
   const args      = process.argv.slice(2);
@@ -34,7 +35,7 @@ async function main() {
   await loadConfig();
 
   // Background update check — non-blocking, best-effort, suppressed in --json mode.
-  if (!jsonOutput && cmd !== 'update' && cmd !== '__internal-host' && cmd !== '__internal-proxy' && cmd !== 'completion' && process.env.MCP_PORTAL_SKIP_UPDATE_CHECK !== '1') {
+  if (!jsonOutput && cmd !== 'update' && cmd !== '__internal-host' && cmd !== '__internal-proxy' && cmd !== '__internal-gateway' && cmd !== 'completion' && process.env.MCP_PORTAL_SKIP_UPDATE_CHECK !== '1') {
     checkForUpdate().then((info) => {
       if (info.isOutdated) {
         logger.warn(`A new version of hoolix is available: ${info.latestVersion} (you have ${info.currentVersion})`);
@@ -122,6 +123,12 @@ async function main() {
       await cmdConnect(args, jsonOutput);
       return;
     }
+    case 'gateway':
+    case 'gateways': {
+      const { cmdGateway } = await import('./commands/gateway.js');
+      await cmdGateway(args, jsonOutput);
+      return;
+    }
     case 'clients':
     case 'client': {
       const { cmdClients } = await import('./commands/clients.js');
@@ -207,6 +214,10 @@ async function main() {
       await runInternalProxy(args);
       return;
 
+    case '__internal-gateway':
+      await runInternalGateway(args);
+      return;
+
     // ── TUI (default when no command given) ───────────────────────────────
     case 'tui':
     default: {
@@ -280,6 +291,25 @@ async function runInternalProxy(args: string[]) {
 
   const options: ProxyHostOptions = { slug, port: parseInt(portStr, 10), authKey };
   await startProxyHost(options);
+}
+
+async function runInternalGateway(args: string[]) {
+  const getArg = (name: string) => {
+    const idx = args.indexOf(`--${name}`);
+    return idx !== -1 ? args[idx + 1] : undefined;
+  };
+
+  const slug = getArg('slug');
+  const portStr = getArg('port');
+  const authKey = getArg('auth-key');
+
+  if (!slug || !portStr || !authKey) {
+    console.error('Internal gateway mode requires --slug, --port, --auth-key');
+    process.exit(1);
+  }
+
+  const options: GatewayHostOptions = { slug, port: parseInt(portStr, 10), authKey };
+  await startGatewayHost(options);
 }
 
 async function launchDashboardPlaceholder() {

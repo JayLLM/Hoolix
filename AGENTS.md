@@ -51,6 +51,7 @@ src/
 ├── mcp/
 │   ├── host.ts              # HTTP Streamable MCP server (tools, Hono, auth, rate, audit). Static import in index for bundler.
 │   └── stdio-host.ts        # Stdio MCP server (foreground, no auth, docs-rag only)
+│   └── gateway-host.ts      # Unified HTTP gateway; aggregates configured mcp-server backends with namespaced tools
 ├── process/
 │   └── manager.ts           # ServerManager (spawn, health, Windows-safe ps-list/tree-kill, __internal-host)
 ├── app/
@@ -210,6 +211,20 @@ Users can drop custom `*.json` files into `~/.hoolix/templates/` (or override wi
 
 ### 10. Shell Completions + Bundle
 
+### 10. Unified Gateway (Local MCP Control Plane)
+
+`hoolix gateway` creates one authenticated Streamable HTTP MCP endpoint that aggregates multiple configured `mcp-server` instances.
+
+- Gateway config lives separately under `gateways/<slug>/gateway.json`; do not overload `servers/<slug>/metadata.json`.
+- Backing servers remain normal `mcp-server` instances. Credentials stay in each backing server's `credentials.json`; gateways store only backend slugs, namespaces, template IDs, and their own auth key.
+- `gateway-host.ts` spawns child stdio MCP servers from existing template run configs, initializes them, aggregates `tools/list`, and forwards `tools/call`.
+- Gateway tool names must be collision-free and namespaced as `<namespace>.<toolName>`.
+- Gateways use their own `data/audit.log`, `data/rate-state.json`, and `.runtime.json`.
+- `hoolix connect <gateway>` and `hoolix gateway connect <gateway>` should both prefer the gateway HTTP endpoint.
+- Human approvals and policy are future gateway features; do not fake policy enforcement in unrelated commands.
+
+### 11. Shell Completions + Bundle
+
 **Shell completions** (`hoolix completion <shell>`):
 - Outputs a ready-to-source script for bash, zsh, fish, or powershell.
 - Dynamic slug completion: calls `hoolix list --json` at tab-time.
@@ -223,7 +238,7 @@ Users can drop custom `*.json` files into `~/.hoolix/templates/` (or override wi
 - After `bundle import`, credential commands are printed for each mcp-server slug.
 - JSON output of `bundle import` includes `credentialsRequired`, `next[]`.
 
-### 11. Documentation as Code (Non-Negotiable)
+### 12. Documentation as Code (Non-Negotiable)
 - Every CLI/behavior change → update:
   - README (hero, table, quickstart, examples, limitations, "why").
   - Relevant `docs/docs/guides/*` + `getting-started/*`.
@@ -235,7 +250,7 @@ Users can drop custom `*.json` files into `~/.hoolix/templates/` (or override wi
 - Architecture diagrams: Mermaid code blocks + ASCII. (Docusaurus can add remark-mermaid later.)
 - "How to keep documentation perfect" section below.
 
-### 12. Contribution & Agent Workflow
+### 13. Contribution & Agent Workflow
 - **Always** start with issue / discussion for anything > tiny.
 - Use `todo_write` for multi-step work (this session did).
 - For ambiguity or large design: `enter_plan_mode` → explore (use `spawn_subagent` with type "explore" for parallel) → write plan → `exit_plan_mode`.
@@ -243,7 +258,7 @@ Users can drop custom `*.json` files into `~/.hoolix/templates/` (or override wi
 - Before submit: `bun test`, `npx tsc --noEmit`, fresh binary smoke for dist changes.
 - Review checklist in PR template.
 
-### 13. npm Package + Release Invariants
+### 14. npm Package + Release Invariants
 
 **npm global package (`npm install -g hoolix`):**
 - `bin/hoolix.js` uses `await import(distEntry)` in the SAME process (no subprocess). Gives correct signal handling (TUI Ctrl+C) and fast startup.

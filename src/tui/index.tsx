@@ -24,7 +24,8 @@ import path from 'node:path';
 import { execSync } from 'node:child_process';
 import { listServers, getServerMetadata, type ServerMetadata } from '../core/registry.js';
 import { serverManager, type ServerStatus } from '../process/manager.js';
-import { getServerDir } from '../core/paths.js';
+import { getGatewayDir, getServerDir } from '../core/paths.js';
+import { listGateways, type GatewayConfig } from '../core/gateways.js';
 import { logger } from '../core/logger.js';
 import { VERSION } from '../core/version.js';
 import { getServerSourceLabel, reindexServer, verifyServer } from '../app/services/servers.js';
@@ -65,7 +66,9 @@ const B = {
 
 interface TUIState {
   servers:       ServerMetadata[];
+  gateways:      GatewayConfig[];
   statuses:      Record<string, ServerStatus>;
+  gatewayStatuses: Record<string, ServerStatus>;
   selectedIndex: number;
   logTail:       string[];
   actionMsg:     string | null;
@@ -109,6 +112,16 @@ async function readLastLogLines(slug: string, n = 6): Promise<string[]> {
   }
 }
 
+async function readLastGatewayLogLines(slug: string, n = 6): Promise<string[]> {
+  try {
+    const content = await fs.readFile(path.join(getGatewayDir(slug), 'gateway.log'), 'utf8');
+    const lines = content.trim().split(/\r?\n/);
+    return lines.slice(-n).filter(Boolean);
+  } catch {
+    return ['(no gateway.log yet — start the gateway to see logs)'];
+  }
+}
+
 async function copyToClipboard(text: string): Promise<boolean> {
   try {
     if (process.platform === 'win32') {
@@ -148,8 +161,9 @@ function buildFrame(state: TUIState): string {
   const out: string[] = [];
 
   // ── Header ────────────────────────────────────────────────────────────────
-  const runningCount = Object.values(state.statuses).filter((s) => s.running).length;
-  const statsStr  = `${state.servers.length} server${state.servers.length !== 1 ? 's' : ''} · ${runningCount} running`;
+  const runningCount = Object.values(state.statuses).filter((s) => s.running).length + Object.values(state.gatewayStatuses).filter((s) => s.running).length;
+  const totalItems = state.servers.length + state.gateways.length;
+  const statsStr  = `${state.servers.length} servers · ${state.gateways.length} gateways · ${runningCount} running`;
   const verStr    = `v${VERSION}`;
   const brandStr  = `◆ hoolix`;
   // Visible header content: ' brandStr  statsStr '
@@ -180,32 +194,39 @@ function buildFrame(state: TUIState): string {
   const leftRaw: string[]     = [];
   const leftColored: string[] = [];
 
-  if (state.servers.length === 0) {
-    const r1 = pad(' No servers yet.', leftW);
+  if (totalItems === 0) {
+    const r1 = pad(' No servers or gateways yet.', leftW);
     const r2 = pad('', leftW);
-    const r3 = pad(` ${B.dot} t  copy trial command`, leftW);
-    const r4 = pad(` ${B.dot} n  copy create command`, leftW);
+    const r3 = pad(` ${B.dot} g  copy gateway command`, leftW);
+    const r4 = pad(` ${B.dot} t  browse/install templates`, leftW);
     leftRaw.push(r1, r2, r3, r4);
     leftColored.push(
-      ` ${A.dim}No servers yet.${A.reset}` + ' '.repeat(Math.max(0, leftW - 16)),
+      ` ${A.dim}No servers or gateways yet.${A.reset}` + ' '.repeat(Math.max(0, leftW - 28)),
       r2,
-      ` ${A.cyan}${B.dot}${A.reset} ${A.dim}t${A.reset}  copy trial command` + ' '.repeat(Math.max(0, leftW - 21)),
-      ` ${A.cyan}${B.dot}${A.reset} ${A.dim}n${A.reset}  copy create command` + ' '.repeat(Math.max(0, leftW - 22)),
+      ` ${A.cyan}${B.dot}${A.reset} ${A.dim}g${A.reset}  copy gateway command` + ' '.repeat(Math.max(0, leftW - 24)),
+      ` ${A.cyan}${B.dot}${A.reset} ${A.dim}t${A.reset}  browse/install templates` + ' '.repeat(Math.max(0, leftW - 29)),
     );
   } else {
-    for (let i = 0; i < state.servers.length && leftRaw.length < mainRows; i++) {
-      const s  = state.servers[i];
-      const st = state.statuses[s.slug] || { running: false };
+    const items = [
+      ...state.servers.map((server) => ({ kind: 'server' as const, slug: server.slug, label: server.slug })),
+      ...state.gateways.map((gateway) => ({ kind: 'gateway' as const, slug: gateway.slug, label: gateway.slug })),
+    ];
+    for (let i = 0; i < items.length && leftRaw.length < mainRows; i++) {
+      const item = items[i];
+      const st = item.kind === 'gateway'
+        ? state.gatewayStatuses[item.slug] || { running: false }
+        : state.statuses[item.slug] || { running: false };
       const isSel = i === state.selectedIndex;
 
       const numStr  = `${i + 1}`.padStart(2);
       const dotChar = st.running ? B.run : B.stop;
-      const slug    = clip(s.slug, leftW - 16).padEnd(Math.min(18, leftW - 16));
+      const marker  = item.kind === 'gateway' ? 'G' : 'S';
+      const slug    = clip(item.label, leftW - 18).padEnd(Math.min(18, leftW - 18));
       const portStr = st.running && st.port ? `:${st.port}` : '';
       const portPad = portStr.padEnd(7);
 
       // Raw visible line (for width measurement)
-      const rawLine = ` ${isSel ? B.sel : ' '} ${numStr} ${dotChar} ${slug} ${portPad}`;
+      const rawLine = ` ${isSel ? B.sel : ' '} ${numStr} ${marker} ${dotChar} ${slug} ${portPad}`;
       const rawPadded = pad(rawLine, leftW);
       leftRaw.push(rawPadded);
 
@@ -213,7 +234,8 @@ function buildFrame(state: TUIState): string {
       const selArrow = isSel ? `${A.brand}${B.sel}${A.reset}` : ' ';
       const dotColor = st.running ? `${A.green}${dotChar}${A.reset}` : `${A.gray}${dotChar}${A.reset}`;
       const portColor = st.running && portStr ? `${A.green}${portPad}${A.reset}` : `${A.dim}${portPad}${A.reset}`;
-      let colored = ` ${selArrow} ${A.dim}${numStr}${A.reset} ${dotColor} ${slug} ${portColor}`;
+      const markerColor = item.kind === 'gateway' ? `${A.cyan}${marker}${A.reset}` : `${A.dim}${marker}${A.reset}`;
+      let colored = ` ${selArrow} ${A.dim}${numStr}${A.reset} ${markerColor} ${dotColor} ${slug} ${portColor}`;
 
       if (isSel) {
         // bg-highlight the entire row
@@ -235,8 +257,43 @@ function buildFrame(state: TUIState): string {
   const rightRaw: string[]     = [];
   const rightColored: string[] = [];
 
-  const sel = state.servers[state.selectedIndex];
-  if (sel) {
+  const selectedGateway = state.selectedIndex >= state.servers.length
+    ? state.gateways[state.selectedIndex - state.servers.length]
+    : undefined;
+  const sel = selectedGateway ? undefined : state.servers[state.selectedIndex];
+  if (selectedGateway) {
+    const st = state.gatewayStatuses[selectedGateway.slug] || { running: false };
+    const addRow = (label: string, value: string, valueColor = (v: string) => v) => {
+      const l = pad(label, 12);
+      const v = clip(value, rightW - 14);
+      const vPad = pad(v, rightW - 14);
+      rightRaw.push(` ${l}  ${vPad}`);
+      rightColored.push(` ${A.dim}${l}${A.reset}  ${valueColor(vPad)}`);
+    };
+    const blank = () => {
+      rightRaw.push('');
+      rightColored.push('');
+    };
+    addRow('Name', selectedGateway.name);
+    addRow('Slug', selectedGateway.slug);
+    addRow('Kind', 'gateway');
+    addRow('Status', st.running && st.port ? `running on :${st.port}` : 'stopped', (v) => st.running ? `${A.green}${v}${A.reset}` : `${A.gray}${v}${A.reset}`);
+    addRow('Backends', `${selectedGateway.backends.length} aggregated`);
+    if (st.running && st.port) addRow('URL', `http://127.0.0.1:${st.port}/mcp`, (v) => `${A.cyan}${v}${A.reset}`);
+    blank();
+    for (const backend of selectedGateway.backends.slice(0, Math.max(1, mainRows - 9))) {
+      addRow(backend.namespace, backend.slug);
+    }
+    blank();
+    const hintLine = pad(` ${B.dot} c copy config · s start/stop gateway · g new gateway`, rightW);
+    rightRaw.push(hintLine);
+    rightColored.push(
+      ` ${A.dim}${B.dot} Press ${A.reset}${A.cyan}c${A.reset}${A.dim} config` +
+      ` · ${A.reset}${A.cyan}s${A.reset}${A.dim} start/stop` +
+      ` · ${A.reset}${A.cyan}g${A.reset}${A.dim} new gateway${A.reset}` +
+      ' '.repeat(Math.max(0, rightW - 52)),
+    );
+  } else if (sel) {
     const st          = state.statuses[sel.slug] || { running: false };
     const isMcpServer = (sel as any).serverKind === 'mcp-server';
 
@@ -335,7 +392,7 @@ function buildFrame(state: TUIState): string {
       rightRaw.push(hintLine);
       rightColored.push(` ${A.dim}${B.dot} Press ${A.reset}${A.cyan}c${A.reset}${A.dim} to copy MCP config to clipboard${A.reset}` + ' '.repeat(Math.max(0, rightW - 42)));
     }
-  } else if (state.servers.length === 0) {
+  } else if (totalItems === 0) {
     const lines = [
       '  Start here:',
       '',
@@ -343,10 +400,11 @@ function buildFrame(state: TUIState): string {
       `  2. hoolix install github-api --yes   (token prompted)`,
       `  3. hoolix install brave-search --yes`,
       `  4. hoolix create "Docs" --url https://.../llms.txt --yes`,
-      `  5. hoolix connect my-files --client claude`,
-      `  6. hoolix client status`,
+      `  5. hoolix gateway create my-tools --include github --include filesystem`,
+      `  6. hoolix gateway start my-tools`,
+      `  7. hoolix gateway connect my-tools --client codex`,
       '',
-      `  ${B.dot} Press t for templates · n for create command.`,
+      `  ${B.dot} Press g for gateway command · t for templates.`,
     ];
     for (const l of lines) {
       rightRaw.push(pad(l, rightW));
@@ -373,7 +431,8 @@ function buildFrame(state: TUIState): string {
   }
 
   // ── Log divider + tail ────────────────────────────────────────────────────
-  const logTitle = sel ? ` Log: ${sel.slug} ` : ' Log ';
+  const selectedLogSlug = sel?.slug ?? selectedGateway?.slug;
+  const logTitle = selectedLogSlug ? ` Log: ${selectedLogSlug} ` : ' Log ';
   const logLeft  = B.h.repeat(3) + logTitle;
   const logRight = B.h.repeat(Math.max(0, innerW - logLeft.length));
   out.push(`${B.ml}${logLeft}${logRight}${B.mr}`);
@@ -390,7 +449,7 @@ function buildFrame(state: TUIState): string {
   // ── Key help bar ──────────────────────────────────────────────────────────
   out.push(`${B.ml}${B.h.repeat(innerW)}${B.mr}`);
 
-  const keyHelp = '↑↓/1-9 select · s start/stop · v verify · c connect · x reindex/secrets · n new · t templates · r refresh · q quit';
+  const keyHelp = '↑↓/1-9 select · g gateway · s start/stop · c connect · x secrets/approvals · n new · t templates · r refresh · q quit';
   const helpLine = pad(` ${keyHelp}`, innerW);
   out.push(`${B.v}${A.dim}${helpLine}${A.reset}${B.v}`);
 
@@ -414,6 +473,7 @@ function buildFrame(state: TUIState): string {
 async function refresh(state: TUIState): Promise<void> {
   try {
     state.servers = await listServers();
+    state.gateways = await listGateways();
     state.statuses = {};
     for (const s of state.servers) {
       try {
@@ -422,9 +482,23 @@ async function refresh(state: TUIState): Promise<void> {
         state.statuses[s.slug] = { running: false };
       }
     }
-    state.selectedIndex = Math.min(state.selectedIndex, Math.max(0, state.servers.length - 1));
-    const sel = state.servers[state.selectedIndex];
-    state.logTail = sel ? await readLastLogLines(sel.slug) : [];
+    state.gatewayStatuses = {};
+    for (const gateway of state.gateways) {
+      try {
+        state.gatewayStatuses[gateway.slug] = await serverManager.getGatewayStatus(gateway.slug);
+      } catch {
+        state.gatewayStatuses[gateway.slug] = { running: false };
+      }
+    }
+    const totalItems = state.servers.length + state.gateways.length;
+    state.selectedIndex = Math.min(state.selectedIndex, Math.max(0, totalItems - 1));
+    if (state.selectedIndex >= state.servers.length) {
+      const gateway = state.gateways[state.selectedIndex - state.servers.length];
+      state.logTail = gateway ? await readLastGatewayLogLines(gateway.slug) : [];
+    } else {
+      const sel = state.servers[state.selectedIndex];
+      state.logTail = sel ? await readLastLogLines(sel.slug) : [];
+    }
   } catch (e: any) {
     logger.debug('TUI refresh error', e?.message);
   }
@@ -443,27 +517,38 @@ function setAction(state: TUIState, msg: string | null, isError = false): void {
 
 async function handleKey(key: string, state: TUIState): Promise<void> {
   const { servers, statuses } = state;
-  const noServers             = servers.length === 0;
-  const slug                  = servers[state.selectedIndex]?.slug;
+  const totalItems            = servers.length + state.gateways.length;
+  const noServers             = totalItems === 0;
+  const selectedGateway       = state.selectedIndex >= servers.length ? state.gateways[state.selectedIndex - servers.length] : undefined;
+  const slug                  = selectedGateway?.slug ?? servers[state.selectedIndex]?.slug;
+  const readSelectedLog = async () => {
+    if (state.selectedIndex >= state.servers.length) {
+      const gateway = state.gateways[state.selectedIndex - state.servers.length];
+      state.logTail = gateway ? await readLastGatewayLogLines(gateway.slug) : [];
+    } else {
+      const server = state.servers[state.selectedIndex];
+      state.logTail = server ? await readLastLogLines(server.slug) : [];
+    }
+  };
 
   // ── Navigation ────────────────────────────────────────────────────────────
   if (/^[1-9]$/.test(key)) {
     const idx = parseInt(key, 10) - 1;
-    if (idx < servers.length) {
+    if (idx < totalItems) {
       state.selectedIndex = idx;
-      state.logTail = await readLastLogLines(servers[idx].slug);
+      await readSelectedLog();
     }
     return;
   }
 
   if (key === '[A' && !noServers) {   // ↑
     state.selectedIndex = Math.max(0, state.selectedIndex - 1);
-    state.logTail = await readLastLogLines(servers[state.selectedIndex].slug);
+    await readSelectedLog();
     return;
   }
   if (key === '[B' && !noServers) {   // ↓
-    state.selectedIndex = Math.min(servers.length - 1, state.selectedIndex + 1);
-    state.logTail = await readLastLogLines(servers[state.selectedIndex].slug);
+    state.selectedIndex = Math.min(totalItems - 1, state.selectedIndex + 1);
+    await readSelectedLog();
     return;
   }
 
@@ -491,10 +576,43 @@ async function handleKey(key: string, state: TUIState): Promise<void> {
     return;
   }
 
+  if (key.toLowerCase() === 'g') {
+    const cmd = 'hoolix gateway create my-tools --include github --include filesystem --include brave-search';
+    const copied = await copyToClipboard(cmd);
+    setAction(state, copied ? `Copied: ${cmd}` : `Run: ${cmd}`);
+    setTimeout(() => { setAction(state, null); render(state); }, 3500);
+    return;
+  }
+
   // ── Server actions (require a selected server) ────────────────────────────
   if (!slug) return;
 
   if (key.toLowerCase() === 's') {
+    if (selectedGateway) {
+      const st = state.gatewayStatuses[selectedGateway.slug] || { running: false };
+      if (st.running) {
+        setAction(state, `Stopping gateway ${selectedGateway.slug}…`);
+        render(state);
+        try {
+          await serverManager.stopGateway(selectedGateway.slug);
+          setAction(state, `Stopped gateway ${selectedGateway.slug}`);
+        } catch (e: any) {
+          setAction(state, `Stop failed: ${e?.message || e}`, true);
+        }
+      } else {
+        setAction(state, `Starting gateway ${selectedGateway.slug}…`);
+        render(state);
+        try {
+          const result = await serverManager.startGateway(selectedGateway.slug);
+          setAction(state, `Started gateway ${selectedGateway.slug} on :${result.port}`);
+        } catch (e: any) {
+          setAction(state, `Gateway start failed: ${e?.message || e}`, true);
+        }
+      }
+      await refresh(state);
+      setTimeout(() => { setAction(state, null); render(state); }, 2500);
+      return;
+    }
     // mcp-server kind: stop proxy if running, otherwise hint
     if ((servers[state.selectedIndex] as any)?.serverKind === 'mcp-server') {
       const mcpSt = statuses[slug] || { running: false };
@@ -543,6 +661,11 @@ async function handleKey(key: string, state: TUIState): Promise<void> {
   }
 
   if (key.toLowerCase() === 'v') {
+    if (selectedGateway) {
+      setAction(state, `${selectedGateway.slug}: ${selectedGateway.backends.length} backend(s), tools aggregate at runtime. Run: hoolix gateway list`);
+      setTimeout(() => { setAction(state, null); render(state); }, 3500);
+      return;
+    }
     // mcp-server kind: quick credential count check instead of RAG verify
     if ((servers[state.selectedIndex] as any)?.serverKind === 'mcp-server') {
       try {
@@ -574,6 +697,29 @@ async function handleKey(key: string, state: TUIState): Promise<void> {
 
   if (key.toLowerCase() === 'c') {
     try {
+      if (selectedGateway) {
+        const st = state.gatewayStatuses[selectedGateway.slug] || {};
+        if (!(st as any).running || !(st as any).port) {
+          setAction(state, `Start gateway first: hoolix gateway start ${selectedGateway.slug}`);
+          setTimeout(() => { setAction(state, null); render(state); }, 3500);
+          return;
+        }
+        const payload = {
+          mcpServers: {
+            [selectedGateway.slug]: {
+              type: 'streamable-http',
+              url: `http://127.0.0.1:${(st as any).port}/mcp`,
+              headers: { Authorization: `Bearer ${selectedGateway.authKey}` },
+            },
+          },
+        };
+        const copied = await copyToClipboard(JSON.stringify(payload, null, 2));
+        setAction(state, copied
+          ? `✓ Copied gateway config for ${selectedGateway.slug}`
+          : `Run: hoolix gateway connect ${selectedGateway.slug} --json`);
+        setTimeout(() => { setAction(state, null); render(state); }, 3500);
+        return;
+      }
       const meta = await getServerMetadata(slug);
 
       if ((meta as any).serverKind === 'mcp-server') {
@@ -643,6 +789,13 @@ async function handleKey(key: string, state: TUIState): Promise<void> {
   }
 
   if (key.toLowerCase() === 'x') {
+    if (selectedGateway) {
+      const cmd = `hoolix gateway connect ${selectedGateway.slug} --client codex`;
+      await copyToClipboard(cmd);
+      setAction(state, `Approvals are next-round; copied gateway connect command. Secrets stay on backing servers.`);
+      setTimeout(() => { setAction(state, null); render(state); }, 4000);
+      return;
+    }
     // mcp-server kind: redirect to secrets instead of reindex
     if ((servers[state.selectedIndex] as any)?.serverKind === 'mcp-server') {
       const cmd = `hoolix secrets set ${slug} <key> <value>`;
@@ -703,7 +856,9 @@ export async function launchTUI(): Promise<void> {
 
   const state: TUIState = {
     servers:       [],
+    gateways:      [],
     statuses:      {},
+    gatewayStatuses: {},
     selectedIndex: 0,
     logTail:       [],
     actionMsg:     null,

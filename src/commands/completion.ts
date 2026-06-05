@@ -26,7 +26,7 @@ const COMMANDS = [
   'start', 'stop', 'reindex', 'verify', 'rotate',
   'connect', 'clients', 'client', 'secrets', 'trial',
   'stats', 'audit', 'export', 'import', 'bundle',
-  'doctor', 'update', 'uninstall', 'gui',
+  'doctor', 'update', 'uninstall', 'gui', 'gateway',
   'templates', 'completion', 'version', 'help',
 ];
 
@@ -61,6 +61,10 @@ _hoolix_get_slugs() {
 
 _hoolix_get_templates() {
   hoolix templates list --json 2>/dev/null | grep '"id"' | sed 's/.*"id": *"\\([^"]*\\)".*/\\1/'
+}
+
+_hoolix_get_gateways() {
+  hoolix gateway list --json 2>/dev/null | grep '"slug"' | sed 's/.*"slug": *"\\([^"]*\\)".*/\\1/'
 }
 
 _hoolix_completions() {
@@ -125,6 +129,15 @@ _hoolix_completions() {
         return 0
       fi
       ;;
+    gateway)
+      if [[ $COMP_CWORD -eq 2 ]]; then
+        COMPREPLY=($(compgen -W "create list start stop connect" -- "$cur"))
+        return 0
+      elif [[ $COMP_CWORD -eq 3 && "\${COMP_WORDS[2]}" =~ ^(start|stop|connect)$ ]]; then
+        COMPREPLY=($(compgen -W "$(_hoolix_get_gateways)" -- "$cur"))
+        return 0
+      fi
+      ;;
     install)
       if [[ $COMP_CWORD -eq 2 ]]; then
         COMPREPLY=($(compgen -W "$(_hoolix_get_templates)" -- "$cur"))
@@ -147,6 +160,7 @@ _hoolix_completions() {
   case "$first" in
     start)    COMPREPLY=($(compgen -W "--port --transport --proxy --json" -- "$cur")) ;;
     connect)  COMPREPLY=($(compgen -W "--client --dry-run --yes --json" -- "$cur")) ;;
+    gateway)  COMPREPLY=($(compgen -W "create list start stop connect --include --port --client --json" -- "$cur")) ;;
     create)   COMPREPLY=($(compgen -W "--url --template --source --input --credential --name --yes --json" -- "$cur")) ;;
     install)  COMPREPLY=($(compgen -W "--name --input --credential --yes" -- "$cur")) ;;
     export)   COMPREPLY=($(compgen -W "--file --team --strip-key --json" -- "$cur")) ;;
@@ -210,6 +224,7 @@ _hoolix() {
     'update:Check for and install updates'
     'uninstall:Remove hoolix and all data'
     'gui:Launch the local web dashboard'
+    'gateway:Manage unified MCP gateways'
     'templates:Browse templates (list|info)'
     'completion:Generate shell completion script'
     'version:Print the current version'
@@ -263,6 +278,15 @@ _hoolix() {
           elif [[ $CURRENT -eq 3 && $words[2] == info ]]; then
             templates=($(hoolix templates list --json 2>/dev/null | grep '"id"' | sed 's/.*"id": *"\\([^"]*\\)".*/\\1/'))
             _describe 'template ID' templates
+          fi
+          ;;
+        gateway)
+          if [[ $CURRENT -eq 2 ]]; then
+            subcmds=('create:Create a gateway' 'list:List gateways' 'start:Start gateway' 'stop:Stop gateway' 'connect:Connect gateway')
+            _describe 'subcommand' subcmds
+          elif [[ $CURRENT -eq 3 && ( $words[2] == start || $words[2] == stop || $words[2] == connect ) ]]; then
+            slugs=($(hoolix gateway list --json 2>/dev/null | grep '"slug"' | sed 's/.*"slug": *"\\([^"]*\\)".*/\\1/'))
+            _describe 'gateway' slugs
           fi
           ;;
         secrets)
@@ -342,6 +366,13 @@ complete -c hoolix -n "__fish_seen_subcommand_from install; and test (count (com
 complete -c hoolix -n "__fish_seen_subcommand_from templates; and not __fish_seen_subcommand_from list info" -a "list info"
 complete -c hoolix -n "__fish_seen_subcommand_from templates; and __fish_seen_subcommand_from info; and test (count (commandline -opc)) -eq 3" -a "(__hoolix_templates)"
 
+function __hoolix_gateways
+  hoolix gateway list --json 2>/dev/null | string match -r '"slug":\\s*"([^"]+)"' | string replace -r '.*"slug":\\s*"([^"]+)".*' '$1'
+end
+
+complete -c hoolix -n "__fish_seen_subcommand_from gateway; and not __fish_seen_subcommand_from create list start stop connect" -a "create list start stop connect"
+complete -c hoolix -n "__fish_seen_subcommand_from gateway; and __fish_seen_subcommand_from start stop connect; and test (count (commandline -opc)) -eq 3" -a "(__hoolix_gateways)"
+
 # secrets subcommands + slug arg
 complete -c hoolix -n "__fish_seen_subcommand_from secrets; and not __fish_seen_subcommand_from list set remove" -a "list set remove"
 complete -c hoolix -n "__fish_seen_subcommand_from secrets; and __fish_seen_subcommand_from list set remove; and test (count (commandline -opc)) -eq 3" -a "(__hoolix_slugs)"
@@ -358,6 +389,9 @@ complete -c hoolix -n "__fish_seen_subcommand_from completion; and test (count (
 
 # Flags per command
 complete -c hoolix -n "__fish_seen_subcommand_from connect" -l client -a "${CLIENTS.join(' ')}" -d "AI client"
+complete -c hoolix -n "__fish_seen_subcommand_from gateway" -l include -d "Server slug to aggregate"
+complete -c hoolix -n "__fish_seen_subcommand_from gateway" -l port -d "Gateway port"
+complete -c hoolix -n "__fish_seen_subcommand_from gateway" -l client -a "${CLIENTS.join(' ')}" -d "AI client"
 complete -c hoolix -n "__fish_seen_subcommand_from start" -l port -d "Port number"
 complete -c hoolix -n "__fish_seen_subcommand_from start" -l transport -a "http stdio" -d "Transport type"
 complete -c hoolix -n "__fish_seen_subcommand_from start" -l proxy -d "Wrap behind HTTP (mcp-server kind)"
@@ -426,6 +460,13 @@ Register-ArgumentCompleter -Native -CommandName hoolix -ScriptBlock {
     } catch {}
   }
 
+  function Get-HoolixGateways {
+    try {
+      $json = (hoolix gateway list --json 2>$null) -join ''
+      [regex]::Matches($json, '"slug"\\s*:\\s*"([^"]+)"') | ForEach-Object { $_.Groups[1].Value }
+    } catch {}
+  }
+
   # First argument: top-level commands
   if ($argCount -le 2) { return Complete-Words $allCommands }
 
@@ -443,6 +484,11 @@ Register-ArgumentCompleter -Native -CommandName hoolix -ScriptBlock {
     'templates' {
       if ($argCount -eq 3) { return Complete-Words @('list','info') }
       if ($argCount -eq 4 -and $elements[2].ToString() -eq 'info') { return Complete-Words (Get-HoolixTemplates) }
+    }
+    'gateway' {
+      if ($argCount -eq 3) { return Complete-Words @('create','list','start','stop','connect') }
+      if ($argCount -eq 4 -and @('start','stop','connect') -contains $elements[2].ToString()) { return Complete-Words (Get-HoolixGateways) }
+      return Complete-Words @('--include','--port','--client','--json')
     }
     'secrets' {
       if ($argCount -eq 3) { return Complete-Words @('list','set','remove') }

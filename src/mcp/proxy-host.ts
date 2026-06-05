@@ -83,12 +83,13 @@ class StdioJsonRpcProxy {
 
   private async _spawnChild(): Promise<void> {
     // On Windows, bare 'npx' needs shell resolution
-    const cmd = process.platform === 'win32' && this.command === 'npx' ? 'npx.cmd' : this.command;
+    const isWindowsNpx = process.platform === 'win32' && this.command === 'npx';
+    const cmd = isWindowsNpx ? 'npx.cmd' : this.command;
 
     this.child = spawn(cmd, this.args, {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, ...this.env },
-      shell: false,
+      shell: isWindowsNpx,
     });
 
     // Pipe child stderr to the proxy-host's stderr (→ host.log via manager redirection)

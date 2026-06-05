@@ -9,6 +9,7 @@ export interface AppPaths {
   data: string;    // root data dir (env-paths based, cross platform)
   config: string;
   servers: string; // per-slug dirs live here
+  gateways: string; // per-gateway dirs live here
   cache: string;
 }
 
@@ -24,6 +25,7 @@ export function getPaths(): AppPaths {
   // all share the same isolated filesystem root without test-only branches elsewhere.
   const data = process.env[DATA_DIR_ENV] || paths.data;
   const servers = path.join(data, 'servers');
+  const gateways = path.join(data, 'gateways');
   const config = path.join(data, 'config.json');
   const cache = path.join(data, 'cache');
 
@@ -31,6 +33,7 @@ export function getPaths(): AppPaths {
     data,
     config,
     servers,
+    gateways,
     cache,
   };
 
@@ -45,6 +48,7 @@ export async function ensureDirectories(): Promise<AppPaths> {
   const p = getPaths();
   await fs.ensureDir(p.data);
   await fs.ensureDir(p.servers);
+  await fs.ensureDir(p.gateways);
   await fs.ensureDir(p.cache);
   return p;
 }
@@ -67,4 +71,20 @@ export function getServerRuntimePath(slug: string): string {
 
 export function getServerCredentialsPath(slug: string): string {
   return path.join(getServerDir(slug), 'credentials.json');
+}
+
+export function getGatewayDir(name: string): string {
+  return path.join(getPaths().gateways, name);
+}
+
+export function getGatewayConfigPath(name: string): string {
+  return path.join(getGatewayDir(name), 'gateway.json');
+}
+
+export function getGatewayRuntimePath(name: string): string {
+  return path.join(getGatewayDir(name), '.runtime.json');
+}
+
+export function getGatewayDataDir(name: string): string {
+  return path.join(getGatewayDir(name), 'data');
 }

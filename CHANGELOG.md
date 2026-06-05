@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`hoolix gateway` MVP** — create, list, start, stop, and connect a unified local MCP gateway that aggregates configured `mcp-server` instances behind one authenticated Streamable HTTP endpoint with namespaced tools.
+- **Gateway-aware TUI** — the terminal dashboard now shows servers and gateways in one left panel, gateway details/backends on the right, and gateway-aware `g`, `s`, and `c` actions.
+
+### Fixed
+
+- **Windows `npx` proxy spawning** — stdio proxy/gateway child launch now handles `npx.cmd` through the Windows shell to avoid `spawn EINVAL` on recent Node builds.
+
 ## [0.0.1] - 2026-06-04
 
 ### Added

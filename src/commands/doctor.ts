@@ -7,6 +7,7 @@ import { loadConfig } from '../core/config.js';
 import { listServers } from '../core/registry.js';
 import { getServerDataDir, getServerCredentialsPath } from '../core/paths.js';
 import { listTemplates } from '../app/services/catalog.js';
+import { listGateways } from '../core/gateways.js';
 import { listSourcePlugins } from '../sources/plugins.js';
 import { getCommunityTemplateDir } from '../catalog/community.js';
 import { getInstallMethod } from '../core/updater.js';
@@ -64,7 +65,7 @@ export async function cmdDoctor(json: boolean): Promise<void> {
     const testFile = path.join(paths.data, '.doctor-write-test');
     await fs.writeFile(testFile, 'ok');
     await fs.remove(testFile).catch(() => {});
-    results.paths = { data: paths.data, config: paths.config, servers: paths.servers, cache: paths.cache, writable: true };
+    results.paths = { data: paths.data, config: paths.config, servers: paths.servers, gateways: paths.gateways, cache: paths.cache, writable: true };
     checks.push({ name: 'paths', ok: true, detail: `data=${paths.data}` });
   } catch (e: any) {
     checks.push({ name: 'paths', ok: false, detail: e.message });
@@ -93,6 +94,26 @@ export async function cmdDoctor(json: boolean): Promise<void> {
   } catch (e: any) {
     checks.push({ name: 'registry', ok: false, detail: e.message });
     results.servers = { error: e.message };
+  }
+
+  try {
+    const gateways = await listGateways();
+    const { serverManager } = await import('../process/manager.js');
+    const running: string[] = [];
+    for (const gateway of gateways) {
+      const st = await serverManager.getGatewayStatus(gateway.slug);
+      if (st.running && st.port) running.push(`${gateway.slug}:${st.port}`);
+    }
+    results.gateways = { count: gateways.length, slugs: gateways.map((gateway) => gateway.slug), running };
+    checks.push({
+      name: 'gateways',
+      ok: true,
+      detail: gateways.length > 0
+        ? `${gateways.length} gateway(s), ${running.length} running`
+        : 'none yet — create one with hoolix gateway create my-tools --include <slug>',
+    });
+  } catch (e: any) {
+    checks.push({ name: 'gateways', ok: false, detail: e.message || String(e) });
   }
 
   checks.push({ name: 'process-manager', ok: true });

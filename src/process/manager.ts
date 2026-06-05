@@ -2,10 +2,11 @@ import { spawn } from 'node:child_process';
 import fs from 'fs-extra';
 import path from 'node:path';
 import net from 'node:net';
-import { getServerRuntimePath, getServerDir, getServerMetadataPath } from '../core/paths.js';
+import { getGatewayRuntimePath, getGatewayDir, getServerRuntimePath, getServerDir, getServerMetadataPath } from '../core/paths.js';
 import { logger } from '../core/logger.js';
 import treeKill from 'tree-kill';
 import psList from 'ps-list';
+import { getGateway } from '../core/gateways.js';
 
 export interface StartOptions {
   port?: number;
@@ -18,7 +19,7 @@ export interface ServerStatus {
   pid?: number;
   port?: number;
   startedAt?: string;
-  mode?: 'http' | 'proxy';
+  mode?: 'http' | 'proxy' | 'gateway';
 }
 
 export interface HostSpawnPlanInput {
@@ -148,6 +149,39 @@ export function buildProxySpawnPlan(input: {
   }
 
   return { command: currentBin, args: ['--import', 'tsx', proxyScript, ...proxyArgs], mode: 'dev-node-import' };
+}
+
+export function buildGatewaySpawnPlan(input: {
+  slug: string;
+  port: number;
+  authKey: string;
+  execPath?: string;
+  platform?: NodeJS.Platform;
+  cwd?: string;
+  tsxExists?: boolean;
+}): ProxySpawnPlan {
+  const currentBin = input.execPath || process.execPath;
+  const isNodeOrBun = currentBin.includes('node') || currentBin.includes('bun');
+  const root = input.cwd || process.cwd();
+  const gatewayScript = path.resolve(root, 'src/mcp/gateway-host.ts');
+  const gatewayArgs = ['--slug', input.slug, '--port', String(input.port), '--auth-key', input.authKey];
+
+  if (!isNodeOrBun) {
+    return { command: currentBin, args: ['__internal-gateway', ...gatewayArgs], mode: 'binary' };
+  }
+
+  const platform = input.platform || process.platform;
+  if (platform === 'win32') {
+    return { command: currentBin, args: ['--import', 'tsx', gatewayScript, ...gatewayArgs], mode: 'dev-node-import' };
+  }
+
+  const tsxBin = path.resolve(root, 'node_modules', '.bin', 'tsx');
+  const tsxExists = input.tsxExists ?? fs.pathExistsSync(tsxBin);
+  if (tsxExists) {
+    return { command: tsxBin, args: [gatewayScript, ...gatewayArgs], mode: 'dev-tsx-bin' };
+  }
+
+  return { command: currentBin, args: ['--import', 'tsx', gatewayScript, ...gatewayArgs], mode: 'dev-node-import' };
 }
 
 export class ServerManager {
@@ -301,6 +335,68 @@ export class ServerManager {
     });
   }
 
+  async startGateway(slug: string, opts: StartOptions = {}): Promise<{ port: number; authKey: string; pid: number }> {
+    const runtimePath = getGatewayRuntimePath(slug);
+    const existing = await this.getGatewayStatus(slug);
+    if (existing.running && existing.port && existing.pid) {
+      const gateway = await getGateway(slug);
+      return { port: existing.port, authKey: gateway.authKey, pid: existing.pid };
+    }
+
+    const gateway = await getGateway(slug);
+    const port = opts.port || await this.findFreePort(BASE_PORT + 600 + Math.floor(Math.random() * 400));
+    const authKey = opts.authKey || gateway.authKey;
+    const hostLogPath = path.join(getGatewayDir(slug), 'gateway.log');
+
+    logger.info(`Spawning gateway host for "${slug}" on port ${port}...`);
+    await fs.writeJson(runtimePath, { pid: -1, port, startedAt: new Date().toISOString(), status: 'starting', mode: 'gateway' }, { spaces: 2 });
+
+    const spawnPlan = buildGatewaySpawnPlan({ slug, port, authKey });
+
+    await fs.ensureFile(hostLogPath);
+    await fs.appendFile(hostLogPath, `\n--- ${new Date().toISOString()} gateway-spawn ${slug} on :${port} ---\n`);
+    const logFd = fs.openSync(hostLogPath, 'a');
+    const child = spawn(spawnPlan.command, spawnPlan.args, {
+      stdio: ['ignore', logFd, logFd],
+      detached: opts.detach ?? true,
+      env: { ...process.env, MCP_PORTAL_LOG_LEVEL: process.env.MCP_PORTAL_LOG_LEVEL || 'info' },
+    });
+    fs.closeSync(logFd);
+
+    child.on('exit', (code, signal) => {
+      if (code !== 0) logger.error(`Gateway host for ${slug} exited (code=${code}, signal=${signal})`);
+    });
+
+    const probeOk = await this.waitForHttpHealth(port, 20000);
+    if (!probeOk) {
+      try { treeKill(child.pid!, 'SIGKILL'); } catch {}
+      await fs.remove(runtimePath).catch(() => {});
+      const tail = await this.readLogTail(hostLogPath);
+      throw new Error(`Failed to start gateway "${slug}" — health check on :${port} timed out.\nRecent logs:\n${tail}`);
+    }
+
+    const pid = child.pid!;
+    await fs.writeJson(runtimePath, { pid, port, startedAt: new Date().toISOString(), status: 'running', mode: 'gateway' }, { spaces: 2 });
+    child.unref();
+    return { port, authKey, pid };
+  }
+
+  async stopGateway(slug: string, force = false): Promise<boolean> {
+    const runtimePath = getGatewayRuntimePath(slug);
+    const status = await this.getGatewayStatus(slug);
+    if (!status.running || !status.pid) {
+      await fs.remove(runtimePath).catch(() => {});
+      return false;
+    }
+    return new Promise((resolve) => {
+      treeKill(status.pid!, force ? 'SIGKILL' : 'SIGTERM', async (err) => {
+        if (err) logger.warn(`tree-kill error for gateway ${slug}: ${err.message}`);
+        await fs.remove(runtimePath).catch(() => {});
+        resolve(true);
+      });
+    });
+  }
+
   async getStatus(slug: string): Promise<ServerStatus> {
     const runtimePath = getServerRuntimePath(slug);
     if (!(await fs.pathExists(runtimePath))) {
@@ -321,6 +417,32 @@ export class ServerManager {
         port: data.port,
         startedAt: data.startedAt,
         mode: (data.mode === 'proxy' ? 'proxy' : 'http') as 'http' | 'proxy',
+      };
+    } catch {
+      await fs.remove(runtimePath).catch(() => {});
+      return { running: false };
+    }
+  }
+
+  async getGatewayStatus(slug: string): Promise<ServerStatus> {
+    const runtimePath = getGatewayRuntimePath(slug);
+    if (!(await fs.pathExists(runtimePath))) {
+      return { running: false };
+    }
+
+    try {
+      const data = await fs.readJson(runtimePath);
+      const alive = await this.isProcessAlive(data.pid);
+      if (!alive) {
+        await fs.remove(runtimePath).catch(() => {});
+        return { running: false };
+      }
+      return {
+        running: true,
+        pid: data.pid,
+        port: data.port,
+        startedAt: data.startedAt,
+        mode: 'gateway',
       };
     } catch {
       await fs.remove(runtimePath).catch(() => {});

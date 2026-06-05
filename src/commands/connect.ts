@@ -277,6 +277,13 @@ export async function cmdConnect(args: string[], json: boolean): Promise<void> {
     meta = await getServerMetadata(slug);
   } catch (e: any) {
     if (e instanceof ServerNotFoundError || e?.code === 'SERVER_NOT_FOUND') {
+      try {
+        const { getGateway } = await import('../core/gateways.js');
+        await getGateway(slug);
+        const { cmdGateway } = await import('./gateway.js');
+        await cmdGateway(['gateway', 'connect', slug, ...args.slice(2)], json);
+        return;
+      } catch {}
       logger.error(`Server "${slug}" not found. Run "hoolix list" to see available servers.`);
     } else {
       logger.error('Failed to load server metadata:', e?.message || e);

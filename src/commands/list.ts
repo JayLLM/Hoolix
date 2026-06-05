@@ -1,22 +1,25 @@
 import { validateServerState } from '../core/registry.js';
 import { getServerSourceLabel, listRegisteredServers } from '../app/services/servers.js';
 import { serverManager } from '../process/manager.js';
+import { listGateways } from '../core/gateways.js';
 import { logger } from '../core/logger.js';
 import { printTitle, printSection, printCommand, printTable, printJson, truncate, getFreshness, formatDate, ui } from '../ui/format.js';
 
 export async function cmdList(json: boolean): Promise<void> {
   const servers = await listRegisteredServers();
+  const gateways = await listGateways();
 
   if (json) {
-    printJson(servers);
+    printJson({ servers, gateways: await Promise.all(gateways.map(async (gateway) => ({ ...gateway, status: await serverManager.getGatewayStatus(gateway.slug) }))) });
     return;
   }
 
-  if (servers.length === 0) {
-    printTitle('Servers', 'No MCP servers registered yet.');
+  if (servers.length === 0 && gateways.length === 0) {
+    printTitle('Servers + Gateways', 'No MCP servers or unified gateways registered yet.');
     printSection('Create your first server');
     printCommand('hoolix install filesystem /Users/jay/projects --yes');
     printCommand('hoolix install github-api --yes');
+    printCommand('hoolix gateway create my-tools --include github --include filesystem');
     printCommand('hoolix create "My Docs" --url https://example.com/docs/llms.txt');
     printCommand('hoolix templates list');
     console.log('');
@@ -77,6 +80,23 @@ export async function cmdList(json: boolean): Promise<void> {
 
   printTable(rows);
   console.log('');
+
+  if (gateways.length > 0) {
+    const gatewayRows = await Promise.all(gateways.map(async (gateway) => {
+      const st = await serverManager.getGatewayStatus(gateway.slug);
+      return {
+        Name: gateway.name,
+        Slug: gateway.slug,
+        Kind: 'gateway',
+        Status: st.running && st.port ? `gateway:${st.port}` : 'stopped',
+        Backends: gateway.backends.map((backend) => backend.namespace).join(', '),
+        Created: formatDate(gateway.createdAt),
+      };
+    }));
+    printSection('Unified gateways');
+    printTable(gatewayRows);
+    console.log('');
+  }
 
   const proxyRunning = Object.values(statusMap).filter((s) => s.running && s.mode === 'proxy');
   if (proxyRunning.length > 0) {
