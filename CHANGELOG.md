@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.6] - 2026-06-05
+
 ### Security — Phase 2 test coverage & supply chain (v0.0.5 polish sprint)
 
 #### Security test suite (8 new test files, 156 new assertions)
@@ -401,7 +403,8 @@ App currently hangs during github workflow. Will be investigated later.
 - Added optional hybrid RAG with lazy BGE embedding + RRF reranker behind `--hybrid` / `--embedding-model`.
 - Added one-command client wiring for Claude/Cursor/Windsurf/Continue/Cline/GrokBuild and `--json` scripting support.
 
-[Unreleased]: https://github.com/JayLLM/Hoolix/compare/v0.0.5...HEAD
+[Unreleased]: https://github.com/JayLLM/Hoolix/compare/v0.0.6...HEAD
+[0.0.6]: https://github.com/JayLLM/Hoolix/compare/v0.0.5...v0.0.6
 [0.0.5]: https://github.com/JayLLM/Hoolix/compare/v0.0.4...v0.0.5
 [0.0.4]: https://github.com/JayLLM/Hoolix/compare/v0.0.3...v0.0.4
 [0.0.3]: https://github.com/JayLLM/Hoolix/compare/v0.0.2...v0.0.3
