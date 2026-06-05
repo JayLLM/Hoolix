@@ -28,7 +28,7 @@ export const ProfileSchema = z.object({
     defaultEffect: z.enum(['allow', 'deny', 'approve']).default('allow'),
     rules: z.array(PolicyRuleSchema).default([]),
   }),
-  sandbox: SandboxSchema.default({}),
+  sandbox: SandboxSchema.default({ filesystemRoots: [], blockedPaths: [], allowedDomains: [], blockedDomains: [] }),
   createdAt: z.string().datetime(),
   lastUpdatedAt: z.string().datetime(),
 });

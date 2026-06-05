@@ -85,12 +85,23 @@ Only use `--include-key` for private backups. Only use `--include-source-auth` w
 
 HTTP hosts include:
 
-- Per-server auth keys.
-- Persistent rate limiting.
-- Tool timeouts.
-- Response guards.
-- Append-only audit logs.
-- Usage analytics.
+- **Per-server auth keys** — 96-bit cryptographically random, `mcp_`-prefixed bearer tokens generated with `crypto.randomBytes`.
+- **Timing-safe comparison** — bearer token validation uses `crypto.timingSafeEqual` to prevent timing-based token extraction.
+- **In-memory rate limiting** — fixed-window counter with periodic disk persistence (no per-request file I/O).
+- **Tool timeouts** — per-tool execution limits (`MCP_TOOL_TIMEOUT_MS`, default 15 s).
+- **Atomic append-only audit logs** — rotation via write-to-tmp then atomic rename; in-memory line counter.
+- **Log redaction** — child-process stderr is scrubbed of `mcp_`, `ghp_`, `sk-`, `Authorization:`, and `KEY=value` patterns before writing to `host.log`.
+- **Security headers** — all GUI routes emit `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and `Cache-Control: no-store`.
+
+## GUI Token Security
+
+The dashboard bearer token is embedded server-side in a `<meta name="hoolix-token">` tag. The browser JS reads it from the DOM and sends `Authorization: Bearer <token>` on every API request. The token never appears in the URL, browser history, server access logs, or `Referer` headers.
+
+Opening the GUI (`hoolix gui`) launches the browser without a `?token=` query parameter.
+
+## Credential File Permissions
+
+`credentials.json` is stored with `chmod 0600` on Unix. On Windows, inherited ACLs are removed via `icacls` so only the owning user can read the file.
 
 ## See Also
 

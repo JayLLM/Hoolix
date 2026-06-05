@@ -74,8 +74,30 @@ hoolix export my-docs --team --strip-key --file my-docs.hoolix.json
 
 Only add `--include-source-auth` for trusted destinations.
 
+## SSRF Protection
+
+Hoolix validates every outbound URL before making a network connection during ingestion and self-update. The SSRF guard rejects:
+
+- Non-http/https schemes (`ftp://`, `file://`, etc.)
+- Cloud metadata endpoints (`169.254.169.254`, `metadata.google.internal`, `metadata.azure.com`, etc.)
+- RFC 1918 private IPs (`10.x`, `172.16–31.x`, `192.168.x`), loopback (`127.x`, `::1`), link-local (`169.254.x`), and carrier-grade NAT (`100.64–127.x`)
+- Hostnames that resolve via DNS to any of the above
+
+This prevents a malicious documentation URL from being used to probe internal services, cloud instance metadata, or loopback addresses.
+
+The curl fallback additionally passes `--proto =https,http --proto-redir =https,http` to prevent scheme-downgrade attacks via redirects.
+
+If a legitimate internal documentation server is being blocked, the URL must be explicitly reachable over a public or VPN-routed address.
+
+## Update Integrity
+
+`hoolix update` downloads the new binary and verifies its SHA-256 hash against the `SHA256SUMS` file attached to the GitHub Release before applying the update. If `SHA256SUMS` is missing or does not contain an entry for the platform binary, the update is **rejected** (fail-closed). A hash mismatch also aborts the update.
+
+Pass `--no-verify` to skip checksum verification (not recommended outside air-gapped environments).
+
 ## See Also
 
 - [Creating Servers](../guides/creating-servers)
 - [Ingestion Pipeline](../architecture/ingestion-pipeline)
 - [CLI Reference](../api-reference/cli)
+- [THREAT_MODEL.md](https://github.com/JayLLM/hoolix/blob/main/THREAT_MODEL.md)

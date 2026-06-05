@@ -278,6 +278,25 @@ jobs:
         with:
           ref: ${{ needs.prepare-release.outputs.tag }}
 
+      - name: Setup Node.js (for SBOM generation)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies for SBOM
+        run: npm install --ignore-scripts
+
+      - name: Generate CycloneDX SBOM
+        shell: bash
+        run: |
+          npx --yes @cyclonedx/cyclonedx-npm \
+            --output-format JSON \
+            --output-file hoolix-sbom.cdx.json \
+            --omit dev \
+            --no-version-override
+          echo "SBOM generated:"
+          cat hoolix-sbom.cdx.json | head -30
+
       - name: Download all binary artifacts
         uses: actions/download-artifact@v8
         with:
@@ -366,6 +385,8 @@ jobs:
           ls dist-bin/*.asc 2>/dev/null && cp dist-bin/*.asc release-assets/ || true
           # SHA-256 checksums
           [ -f SHA256SUMS ] && cp SHA256SUMS release-assets/
+          # CycloneDX SBOM
+          [ -f hoolix-sbom.cdx.json ] && cp hoolix-sbom.cdx.json release-assets/
           echo ""
           echo "=== Release assets ==="
           ls -lh release-assets/

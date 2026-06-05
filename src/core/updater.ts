@@ -341,6 +341,9 @@ del "%~f0" >nul 2>&1
 
 // ── Version comparison helpers ────────────────────────────────────────────────
 
+/** @internal exported for unit tests */
+export { compareVersions, verifyChecksum };
+
 function parseVersion(version: string): ParsedVersion {
   const clean = version.replace(/^v/, '');
   const [core, prereleaseText = ''] = clean.split('-', 2);

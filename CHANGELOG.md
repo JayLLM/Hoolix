@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security — Phase 2 test coverage & supply chain (v0.0.5 polish sprint)
+
+#### Security test suite (8 new test files, 156 new assertions)
+- **`test/security-auth.test.ts`** — `timingSafeEqualString` correct/incorrect/length-mismatch/unicode; `generateAuthKey` prefix/length/uniqueness/hex-charset.
+- **`test/security-ssrf.test.ts`** — `isPrivateIp` exhaustive IP matrix (RFC1918, loopback, link-local, CGN, IPv6); `assertSafeFetchTarget` scheme/hostname/bare-private-IP/DNS-resolution/trailing-dot/invalid-URL cases. DNS mocked via `vi.mock` so no network required.
+- **`test/security-policy.test.ts`** — `evaluatePolicy` full matrix: null profile, gateway allow/deny, tool wildcard allow/deny, sandbox path/domain block, policy rules, `approvalMode` (always/read-only/writes), default effect. Also tests `matchesPattern` and `isWriteTool`.
+- **`test/security-interpolate.test.ts`** — `interpolateString` single/multi/unknown/empty/shell-metachar/backtick substitution; `interpolateRunConfig` args/env/command-not-interpolated/unknown-key/empty-map.
+- **`test/security-redact.test.ts`** — `redactSecrets` for `mcp_`, `ghp_`, `github_pat_`, `sk-`, `Authorization:`, `Bearer`, `KEY=value`, multi-secret lines, empty string.
+- **`test/security-updater.test.ts`** — `compareVersions` semver matrix (major/minor/patch/prerelease/v-prefix); `verifyChecksum` fail-closed: no URL → `{ok:false,verified:false}`; 404 → fail-closed; asset missing from file → fail-closed; good hash → `{ok:true,verified:true}`; bad hash → `{ok:false,verified:true}`; network error → fail-closed.
+- **`test/security-audit.test.ts`** — `AuditLogger` creates file, valid JSON per entry, append count, init loads prior lines, rotation (line threshold, keeps keepRatio, no tmp file left); `RateLimiter` within-limit/exceeds/window-reset/retryAfterSeconds/flush-to-disk/start-fresh/stop-clean.
+- **`test/security-registry.test.ts`** — `registerServer` always sets schemaVersion; schema migration backfills schemaVersion on legacy records; migrated value is persisted on first read; no re-write on second read after migration.
+
+#### Source exports for testability
+- `src/core/updater.ts` — `compareVersions` and `verifyChecksum` exported (`@internal`) for direct unit testing.
+
+#### Supply chain
+- `.github/workflows/scorecard.yml` — OSSF Scorecard analysis on push to `main` and weekly schedule; results uploaded to the GitHub Security tab.
+- `release.yml` — CycloneDX SBOM (`hoolix-sbom.cdx.json`) generated via `@cyclonedx/cyclonedx-npm` and attached to every GitHub Release alongside `SHA256SUMS` and GPG signatures.
+
+---
+
 ## [0.0.5] - 2026-06-05
 
 feat: enhance dashboard security by embedding token in meta tag
