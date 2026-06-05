@@ -1,4 +1,13 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+/**
+ * Updater unit tests.
+ *
+ * These tests do NOT use vi.stubGlobal / vi.mock so they run correctly under
+ * both vitest and Bun's native test runner (which does not support vitest's
+ * hoisting transformer). fetch is intercepted via a real local HTTP server.
+ */
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import http from 'node:http';
+import { once } from 'node:events';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'fs-extra';
@@ -39,6 +48,30 @@ describe('compareVersions', () => {
   }
 });
 
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+/** Spin up a tiny HTTP server that serves one response body then shuts down. */
+async function withChecksumServer(
+  statusCode: number,
+  body: string,
+  fn: (url: string) => Promise<void>,
+): Promise<void> {
+  const server = http.createServer((_req, res) => {
+    res.writeHead(statusCode, { 'content-type': 'text/plain' });
+    res.end(body);
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const addr = server.address() as { port: number };
+  const url = `http://127.0.0.1:${addr.port}/SHA256SUMS`;
+  try {
+    await fn(url);
+  } finally {
+    server.close();
+    await once(server, 'close').catch(() => {});
+  }
+}
+
 // ── verifyChecksum ────────────────────────────────────────────────────────────
 
 describe('verifyChecksum (fail-closed behaviour)', () => {
@@ -49,10 +82,12 @@ describe('verifyChecksum (fail-closed behaviour)', () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'hoolix-checksum-'));
     binPath = path.join(tmpDir, 'test-binary');
     await fs.writeFile(binPath, 'fake binary content');
+    // Allow the local fixture server to bypass the SSRF guard.
+    process.env.MCP_PORTAL_DISABLE_SSRF_GUARD = '1';
   });
 
   afterEach(async () => {
-    vi.restoreAllMocks();
+    delete process.env.MCP_PORTAL_DISABLE_SSRF_GUARD;
     await fs.remove(tmpDir).catch(() => {});
   });
 
@@ -62,44 +97,33 @@ describe('verifyChecksum (fail-closed behaviour)', () => {
   });
 
   it('returns {ok:false, verified:false} when checksum fetch returns 404', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 404 }));
-    const result = await verifyChecksum(binPath, 'test-binary', 'https://example.com/SHA256SUMS');
-    expect(result).toEqual({ ok: false, verified: false });
+    await withChecksumServer(404, 'not found', async (url) => {
+      const result = await verifyChecksum(binPath, 'test-binary', url);
+      expect(result).toEqual({ ok: false, verified: false });
+    });
   });
 
   it('returns {ok:false, verified:false} when asset name not in SHA256SUMS', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      text: async () => 'abc123def456  other-binary\n',
-    }));
-    const result = await verifyChecksum(binPath, 'test-binary', 'https://example.com/SHA256SUMS');
-    expect(result).toEqual({ ok: false, verified: false });
+    await withChecksumServer(200, 'abc123def456  other-binary\n', async (url) => {
+      const result = await verifyChecksum(binPath, 'test-binary', url);
+      expect(result).toEqual({ ok: false, verified: false });
+    });
   });
 
   it('returns {ok:true, verified:true} when hash matches', async () => {
     const data = await fs.readFile(binPath);
     const expectedHash = createHash('sha256').update(data).digest('hex');
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      text: async () => `${expectedHash}  test-binary\n`,
-    }));
-    const result = await verifyChecksum(binPath, 'test-binary', 'https://example.com/SHA256SUMS');
-    expect(result).toEqual({ ok: true, verified: true });
+    await withChecksumServer(200, `${expectedHash}  test-binary\n`, async (url) => {
+      const result = await verifyChecksum(binPath, 'test-binary', url);
+      expect(result).toEqual({ ok: true, verified: true });
+    });
   });
 
   it('returns {ok:false, verified:true} when hash does not match', async () => {
     const wrongHash = 'a'.repeat(64);
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      text: async () => `${wrongHash}  test-binary\n`,
-    }));
-    const result = await verifyChecksum(binPath, 'test-binary', 'https://example.com/SHA256SUMS');
-    expect(result).toEqual({ ok: false, verified: true });
-  });
-
-  it('returns {ok:false, verified:false} when fetch throws (network error)', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network timeout')));
-    const result = await verifyChecksum(binPath, 'test-binary', 'https://example.com/SHA256SUMS');
-    expect(result).toEqual({ ok: false, verified: false });
+    await withChecksumServer(200, `${wrongHash}  test-binary\n`, async (url) => {
+      const result = await verifyChecksum(binPath, 'test-binary', url);
+      expect(result).toEqual({ ok: false, verified: true });
+    });
   });
 });

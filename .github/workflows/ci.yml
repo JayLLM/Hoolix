@@ -26,6 +26,11 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Generate npm lockfile for audit
+        # CI uses bun.lockb; npm audit requires package-lock.json.
+        # --package-lock-only skips downloading packages (just resolves the graph).
+        run: npm install --package-lock-only --ignore-scripts
+
       - name: Audit dependencies (high severity)
         run: npm audit --audit-level=high --omit=dev
         continue-on-error: false

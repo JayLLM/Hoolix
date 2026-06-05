@@ -43,9 +43,13 @@ export function isPrivateIp(ip: string): boolean {
  * Rejects non-http/https schemes, blocked hostnames, and IPs that resolve to
  * private/internal ranges.
  *
+ * Set MCP_PORTAL_DISABLE_SSRF_GUARD=1 to bypass all checks (test environments only).
+ *
  * @throws Error if the target is blocked.
  */
 export async function assertSafeFetchTarget(urlStr: string): Promise<void> {
+  // Test-only escape hatch — never set this in production deployments.
+  if (process.env.MCP_PORTAL_DISABLE_SSRF_GUARD === '1') return;
   let parsed: URL;
   try {
     parsed = new URL(urlStr);

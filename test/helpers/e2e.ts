@@ -33,6 +33,8 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
       FORCE_COLOR: '0',
       NO_COLOR: '1',
       MCP_PORTAL_SKIP_UPDATE_CHECK: '1',
+      // Allow fixture servers on loopback in e2e tests (never set in production).
+      MCP_PORTAL_DISABLE_SSRF_GUARD: '1',
       ...options.env,
     },
     stdio: ['pipe', 'pipe', 'pipe'],
