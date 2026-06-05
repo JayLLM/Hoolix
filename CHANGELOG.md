@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.4] - 2026-06-05
+
 ### Added
 
 - **Unified local MCP control plane** — added the `hoolix gateway` command family to create, list, start, stop, and connect one authenticated Streamable HTTP gateway that aggregates multiple configured `mcp-server` backends behind a single endpoint.
@@ -344,7 +346,8 @@ App currently hangs during github workflow. Will be investigated later.
 - Added optional hybrid RAG with lazy BGE embedding + RRF reranker behind `--hybrid` / `--embedding-model`.
 - Added one-command client wiring for Claude/Cursor/Windsurf/Continue/Cline/GrokBuild and `--json` scripting support.
 
-[Unreleased]: https://github.com/JayLLM/Hoolix/compare/v0.0.3...HEAD
+[Unreleased]: https://github.com/JayLLM/Hoolix/compare/v0.0.4...HEAD
+[0.0.4]: https://github.com/JayLLM/Hoolix/compare/v0.0.3...v0.0.4
 [0.0.3]: https://github.com/JayLLM/Hoolix/compare/v0.0.2...v0.0.3
 [0.0.2]: https://github.com/JayLLM/Hoolix/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/JayLLM/Hoolix/compare/v0.0.1-beta.20...v0.0.1
