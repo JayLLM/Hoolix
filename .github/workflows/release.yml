@@ -188,7 +188,7 @@ jobs:
           echo "Full smoke passed"
 
       - name: Upload binary artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.binary-name }}
           path: dist-bin/${{ matrix.binary-name }}${{ matrix.ext }}
@@ -279,7 +279,7 @@ jobs:
           ref: ${{ needs.prepare-release.outputs.tag }}
 
       - name: Download all binary artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: ./dist-bin
           merge-multiple: true
@@ -328,7 +328,7 @@ jobs:
 
       - name: Import GPG key
         if: steps.gpg-check.outputs.available == 'true'
-        uses: crazy-max/ghaction-import-gpg@v6
+        uses: crazy-max/ghaction-import-gpg@v7
         with:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
