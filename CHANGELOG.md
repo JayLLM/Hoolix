@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.8] - 2026-06-05
+
 ### Fixed
 - **release workflow: SBOM step broken-pipe failure** — `cat hoolix-sbom.cdx.json | head -30` caused `cat` to receive SIGPIPE when `head` exited after 30 lines; bash `set -e` treated the non-zero exit as a step failure even though the SBOM file was generated successfully. Changed to `head -30 hoolix-sbom.cdx.json` (direct read, no pipe) to eliminate the broken pipe entirely.
 - **release workflow: invalid `--no-version-override` flag** — `@cyclonedx/cyclonedx-npm` does not recognise this option; removed it so the SBOM generation command is valid.
@@ -415,7 +417,8 @@ App currently hangs during github workflow. Will be investigated later.
 - Added optional hybrid RAG with lazy BGE embedding + RRF reranker behind `--hybrid` / `--embedding-model`.
 - Added one-command client wiring for Claude/Cursor/Windsurf/Continue/Cline/GrokBuild and `--json` scripting support.
 
-[Unreleased]: https://github.com/JayLLM/Hoolix/compare/v0.0.7...HEAD
+[Unreleased]: https://github.com/JayLLM/Hoolix/compare/v0.0.8...HEAD
+[0.0.8]: https://github.com/JayLLM/Hoolix/compare/v0.0.7...v0.0.8
 [0.0.7]: https://github.com/JayLLM/Hoolix/compare/v0.0.6...v0.0.7
 [0.0.6]: https://github.com/JayLLM/Hoolix/compare/v0.0.5...v0.0.6
 [0.0.5]: https://github.com/JayLLM/Hoolix/compare/v0.0.4...v0.0.5
