@@ -7,8 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.0.3] - 2026-06-05
-
 ### Added
 
 - **Unified local MCP control plane** — added the `hoolix gateway` command family to create, list, start, stop, and connect one authenticated Streamable HTTP gateway that aggregates multiple configured `mcp-server` backends behind a single endpoint.
@@ -22,11 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`hoolix gateway connect`** now accepts `--profile <name>` and emits a profile-scoped HTTP config for Codex, Claude Code, Cursor, Grok Build, and other MCP-compatible clients.
 - **`hoolix list` and `hoolix doctor`** now report gateway, profile, and pending approval state alongside existing server/proxy health.
+- **Web GUI control-plane view** — the local GUI now exposes gateway, profile, and pending approval state through a Control Plane panel and `/api/control-plane`.
 - **Shell completions and help text** now include gateway, profile, approval, and profile-aware connect workflows.
 - **AGENTS.md and docs** now describe gateway/profile/approval invariants, storage locations, and control-plane architecture.
 
 ### Fixed
 
+- **Windows npm shim startup** — `bin/hoolix.js` now converts the compiled `dist/index.js` path with `pathToFileURL()` before `await import()`, fixing `ERR_UNSUPPORTED_ESM_URL_SCHEME` for global npm installs on Windows while preserving same-process startup and signal handling.
 - **Windows `npx` stdio spawning** — proxy and gateway child processes now launch `npx.cmd` through the Windows shell to avoid `spawn EINVAL` on recent Node builds.
 
 ## [0.0.2] - 2026-06-05

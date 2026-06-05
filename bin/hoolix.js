@@ -17,12 +17,19 @@
  */
 
 import { existsSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const distEntry = join(__dirname, '..', 'dist', 'index.js');
 const srcEntry  = join(__dirname, '..', 'src', 'index.ts');
+
+function toImportSpecifier(filePath) {
+  // Windows absolute paths like C:\...\dist\index.js are parsed by ESM import()
+  // as an unsupported "c:" URL scheme. Convert filesystem paths to file:// URLs
+  // before dynamic import while keeping the same-process npm startup path.
+  return pathToFileURL(filePath).href;
+}
 
 if (existsSync(distEntry)) {
   // ── Production / npm global install ──────────────────────────────────────
@@ -30,13 +37,15 @@ if (existsSync(distEntry)) {
   // correctly (node bins/hoolix.js [...args]), so src/index.ts reads args normally.
   // Signals (SIGTERM, SIGINT/Ctrl+C, etc.) are handled by src/index.ts directly
   // without needing to propagate through a subprocess.
-  await import(distEntry);
+  await import(toImportSpecifier(distEntry));
 } else {
   // ── Development fallback ──────────────────────────────────────────────────
   // dist/ not built — use tsx to run TypeScript source directly.
   const { spawnSync } = await import('node:child_process');
 
-  const tsx = join(__dirname, '..', 'node_modules', '.bin', 'tsx');
+  const tsxBase = join(__dirname, '..', 'node_modules', '.bin', 'tsx');
+  const tsxCmd = process.platform === 'win32' ? `${tsxBase}.cmd` : tsxBase;
+  const tsx = existsSync(tsxCmd) ? tsxCmd : tsxBase;
   if (!existsSync(tsx)) {
     console.error('[hoolix] Development mode requires tsx. Run: npm install');
     process.exit(1);
@@ -45,6 +54,7 @@ if (existsSync(distEntry)) {
   const { status } = spawnSync(tsx, [srcEntry, ...process.argv.slice(2)], {
     stdio:  'inherit',
     env:    process.env,
+    shell:  process.platform === 'win32',
   });
   process.exit(status ?? 1);
 }

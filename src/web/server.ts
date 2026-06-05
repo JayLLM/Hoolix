@@ -32,6 +32,9 @@ import {
 import { SourceDefinitionSchema, type SourceDefinition } from '../sources/types.js';
 import { instantiateTemplate } from '../app/services/catalog.js';
 import { getStatsReport } from '../app/services/analytics.js';
+import { listGateways } from '../core/gateways.js';
+import { listProfiles, maskProfile } from '../core/profiles.js';
+import { listPendingApprovals } from '../core/approvals.js';
 
 const GUI_TOKEN_FILE = '.gui-token';
 
@@ -156,6 +159,26 @@ function createApp(token: string) {
       });
     }
     return c.json(enriched);
+  });
+
+  app.get('/api/control-plane', async (c) => {
+    const gateways = await listGateways();
+    const profiles = await listProfiles();
+    const approvals = await listPendingApprovals();
+    const gatewayRows = [];
+    for (const gateway of gateways) {
+      const status = await serverManager.getGatewayStatus(gateway.slug);
+      gatewayRows.push({
+        ...gateway,
+        authKey: maskSecret(gateway.authKey),
+        status,
+      });
+    }
+    return c.json({
+      gateways: gatewayRows,
+      profiles: profiles.map(maskProfile),
+      pendingApprovals: approvals,
+    });
   });
 
   // Create server (non-interactive)

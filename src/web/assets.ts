@@ -82,6 +82,9 @@ export function buildDashboardHtml(_initialToken: string): string {
           <a href="#" onclick="showView('templates'); return false;" class="nav-link flex items-center gap-x-3 px-3 py-2 text-sm hover:bg-zinc-800 rounded-lg" data-view="templates">
             <i class="fa-solid fa-list w-4"></i> <span>Templates</span>
           </a>
+          <a href="#" onclick="showView('control-plane'); return false;" class="nav-link flex items-center gap-x-3 px-3 py-2 text-sm hover:bg-zinc-800 rounded-lg" data-view="control-plane">
+            <i class="fa-solid fa-server w-4"></i> <span>Control Plane</span>
+          </a>
           <a href="#" onclick="showView('playground'); return false;" class="nav-link flex items-center gap-x-3 px-3 py-2 text-sm hover:bg-zinc-800 rounded-lg" data-view="playground">
             <i class="fa-solid fa-search w-4"></i> <span>Playground</span>
           </a>
@@ -152,6 +155,17 @@ export function buildDashboardHtml(_initialToken: string): string {
             <button onclick="loadTemplates()" class="px-3 py-1.5 text-xs rounded-lg bg-zinc-800 hover:bg-zinc-700">Refresh</button>
           </div>
           <div id="templates-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+        </div>
+
+        <div id="view-control-plane" class="hidden">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <div class="text-2xl font-semibold tracking-tight">Local MCP Control Plane</div>
+              <div class="text-zinc-500 text-sm">Gateways, profile identities, and pending human approvals</div>
+            </div>
+            <button onclick="loadControlPlane()" class="px-3 py-1.5 text-xs rounded-lg bg-zinc-800 hover:bg-zinc-700">Refresh</button>
+          </div>
+          <div id="control-plane-grid" class="grid grid-cols-1 lg:grid-cols-3 gap-4"></div>
         </div>
 
         <!-- Playground view -->
@@ -266,6 +280,7 @@ export function buildDashboardHtml(_initialToken: string): string {
 
       if (view === 'servers') refreshServers();
       if (view === 'templates') loadTemplates();
+      if (view === 'control-plane') loadControlPlane();
       if (view === 'playground') loadPlaygroundServers();
     }
 
@@ -471,6 +486,60 @@ export function buildDashboardHtml(_initialToken: string): string {
       }
     }
 
+    async function loadControlPlane() {
+      const grid = document.getElementById('control-plane-grid');
+      if (!grid) return;
+      grid.innerHTML = '<div class="text-xs text-zinc-500">Loading control plane...</div>';
+      try {
+        const data = await api('/api/control-plane');
+        const gateways = data.gateways || [];
+        const profiles = data.profiles || [];
+        const approvals = data.pendingApprovals || [];
+        grid.innerHTML = '';
+
+        const makeCard = (title, subtitle, rows, footer) => {
+          const card = document.createElement('div');
+          card.className = 'card bg-zinc-900 border border-zinc-800 rounded-2xl p-4';
+          card.innerHTML = \`
+            <div class="flex justify-between items-start gap-3">
+              <div>
+                <div class="font-semibold text-base">\${title}</div>
+                <div class="text-xs text-zinc-500">\${subtitle}</div>
+              </div>
+              <div class="text-[10px] uppercase tracking-widest text-sky-400">\${rows.length}</div>
+            </div>
+            <div class="mt-4 space-y-3 text-sm">\${rows.length ? rows.join('') : '<div class="text-zinc-500 text-xs">None yet</div>'}</div>
+            \${footer ? '<div class="mt-4 text-xs text-zinc-500 font-mono">' + footer + '</div>' : ''}
+          \`;
+          grid.appendChild(card);
+        };
+
+        makeCard('Gateways', 'Single MCP endpoints', gateways.map(g => \`
+          <div class="border border-zinc-800 rounded-lg p-3">
+            <div class="flex justify-between gap-2"><span class="font-medium">\${g.slug}</span><span class="text-xs \${g.status && g.status.running ? 'text-emerald-400' : 'text-zinc-500'}">\${g.status && g.status.running ? 'running :' + g.status.port : 'stopped'}</span></div>
+            <div class="text-xs text-zinc-500 mt-1">\${(g.backends || []).map(b => b.namespace).join(', ') || 'no backends'}</div>
+          </div>
+        \`), 'hoolix gateway create my-tools --include github');
+
+        makeCard('Profiles', 'Agent identities and policy', profiles.map(p => \`
+          <div class="border border-zinc-800 rounded-lg p-3">
+            <div class="flex justify-between gap-2"><span class="font-medium">\${p.slug}</span><span class="text-xs text-zinc-500">\${p.approvalMode}</span></div>
+            <div class="text-xs text-zinc-500 mt-1">\${(p.allowedTools || []).join(', ')}</div>
+          </div>
+        \`), 'hoolix profile create codex --include github,filesystem');
+
+        makeCard('Approvals', 'Human approval queue', approvals.map(a => \`
+          <div class="border border-zinc-800 rounded-lg p-3">
+            <div class="font-medium text-sm">\${a.toolName}</div>
+            <div class="text-xs text-zinc-500 mt-1">\${a.profile} · \${a.id}</div>
+            <div class="text-xs text-zinc-400 mt-2 font-mono">\${(a.argumentsPreview || '').slice(0, 90)}</div>
+          </div>
+        \`), 'hoolix approvals approve <id>');
+      } catch (e) {
+        grid.innerHTML = '<div class="text-red-400 text-sm">Could not load control plane: ' + e.message + '</div>';
+      }
+    }
+
     function useTemplate(id) {
       const t = TEMPLATES.find(x => x.id === id);
       showCreateModal();
@@ -595,6 +664,12 @@ export function buildDashboardHtml(_initialToken: string): string {
 
     async function refreshAll() {
       await refreshServers();
+      if (document.getElementById('view-control-plane') && !document.getElementById('view-control-plane').classList.contains('hidden')) {
+        await loadControlPlane();
+      }
+      if (document.getElementById('view-templates') && !document.getElementById('view-templates').classList.contains('hidden')) {
+        await loadTemplates();
+      }
     }
 
     async function init() {
