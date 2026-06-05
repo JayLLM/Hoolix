@@ -1,6 +1,7 @@
 import fs from 'fs-extra';
 import path from 'node:path';
 import { createGateway, getGateway, listGateways } from '../core/gateways.js';
+import { getProfile } from '../core/profiles.js';
 import { serverManager } from '../process/manager.js';
 import { logger } from '../core/logger.js';
 import { ALL_CLIENTS, copyToClipboard, detectPreferredClient, getClientSteps, getConfigPath, type ClientId } from './connect.js';
@@ -19,11 +20,16 @@ function getPortArg(args: string[]): number | undefined {
   return idx !== -1 ? parseInt(args[idx + 1] || '0', 10) || undefined : undefined;
 }
 
-function buildHttpEntry(authKey: string, port: number): { type: 'streamable-http'; url: string; headers: Record<string, string> } {
+function valueFor(args: string[], flag: string): string | undefined {
+  const idx = args.indexOf(flag);
+  return idx !== -1 ? args[idx + 1] : undefined;
+}
+
+function buildHttpEntry(authKey: string, port: number, profile?: string): { type: 'streamable-http'; url: string; headers: Record<string, string> } {
   return {
     type: 'streamable-http',
     url: `http://127.0.0.1:${port}/mcp`,
-    headers: { Authorization: `Bearer ${authKey}` },
+    headers: { Authorization: `Bearer ${authKey}`, ...(profile ? { 'X-Hoolix-Profile': profile } : {}) },
   };
 }
 
@@ -185,18 +191,20 @@ export async function cmdGateway(args: string[], json: boolean): Promise<void> {
     const clientIdx = args.indexOf('--client');
     let client = (clientIdx !== -1 ? args[clientIdx + 1] : undefined) as ClientId | undefined;
     if (!client || !ALL_CLIENTS.includes(client)) client = json ? 'generic' : detectPreferredClient();
+    const profileName = valueFor(args, '--profile');
+    const profile = profileName ? await getProfile(profileName) : null;
     const isProject = args.includes('--project');
     const isDryRun = args.includes('--dry-run');
-    const entry = buildHttpEntry(gateway.authKey, port);
+    const entry = buildHttpEntry(profile?.authKey ?? gateway.authKey, port, profile?.slug);
     const { key, payload } = buildPayload(client, gateway.slug, entry, isProject);
 
     if (json) {
-      printJson({ ...payload, transport: 'http', gateway: gateway.slug, client });
+      printJson({ ...payload, transport: 'http', gateway: gateway.slug, client, profile: profile?.slug ?? null });
       return;
     }
 
     const cfgPath = isDryRun ? null : await writeClientConfig(client, key, payload, isProject);
-    printTitle('Gateway connect ready', `"${gateway.name}" → ${client}`);
+    printTitle('Gateway connect ready', `"${gateway.name}" → ${client}${profile ? ` (${profile.slug})` : ''}`);
     printSection('MCP config snippet');
     const entryStr = JSON.stringify(payload, null, 2);
     console.log(entryStr);

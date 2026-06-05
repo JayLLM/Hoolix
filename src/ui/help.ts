@@ -14,6 +14,8 @@ ${chalk.bold('Server management')}
   ${ui.accent('install')} <template> [values…] Sugar for create --template (positional inputs; --name, --yes)
   ${ui.accent('templates')}             Browse official templates: list, info <id> (--json)
   ${ui.accent('gateway')}               Create/list/start/stop/connect one unified MCP gateway (--json)
+  ${ui.accent('profile')}               Manage client profiles and gateway policies (--json)
+  ${ui.accent('approvals')}             List, approve, or deny pending gateway tool calls (--json)
   ${ui.accent('list')}                  List registered servers with live proxy status (--json)
   ${ui.accent('info')} <slug>           Show definition, sources/config, index, and status (--json)
   ${ui.accent('delete')} <slug>         Remove server and data (--yes, --json)
@@ -71,7 +73,9 @@ ${chalk.bold('Examples — MCP server templates')}
   ${ui.accent('›')} hoolix start my-github --proxy                 (wrap mcp-server behind HTTP for sharing / remote)
   ${ui.accent('›')} hoolix gateway create my-tools --include github --include filesystem --include brave-search
   ${ui.accent('›')} hoolix gateway start my-tools
-  ${ui.accent('›')} hoolix gateway connect my-tools --client codex
+  ${ui.accent('›')} hoolix profile create codex --include github,filesystem --approval writes
+  ${ui.accent('›')} hoolix gateway connect my-tools --client codex --profile codex
+  ${ui.accent('›')} hoolix approvals list
   ${ui.accent('›')} hoolix connect my-files --client claude
   ${ui.accent('›')} hoolix connect my-github --client claude-code --yes
   ${ui.accent('›')} hoolix connect my-files --dry-run
@@ -104,6 +108,7 @@ ${chalk.bold('Status')}
   ${ui.success('✓')} Credentials stored separately in credentials.json (0600) with env-var auto-detection
   ${ui.success('✓')} llms.txt-first, GitHub-aware ingestion; Fuse.js + optional hybrid BGE; grounded Source URLs
   ${ui.success('✓')} Unified gateways aggregate many MCP servers behind one authenticated Streamable HTTP endpoint
+  ${ui.success('✓')} Client profiles add per-agent identity, approval rules, and basic sandbox boundaries
   ${ui.success('✓')} Streamable HTTP + stdio MCP transports; auth, rate limiting, audit, stats
   ${ui.success('✓')} Proxy mode: hoolix start <slug> --proxy wraps any mcp-server behind authenticated HTTP
   ${ui.success('✓')} Self-contained binaries, TUI, web GUI, connect, rotate, export/import, bundle, doctor, shell completions

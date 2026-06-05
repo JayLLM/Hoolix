@@ -26,6 +26,8 @@ import { listServers, getServerMetadata, type ServerMetadata } from '../core/reg
 import { serverManager, type ServerStatus } from '../process/manager.js';
 import { getGatewayDir, getServerDir } from '../core/paths.js';
 import { listGateways, type GatewayConfig } from '../core/gateways.js';
+import { decideApproval, listPendingApprovals, type ApprovalRecord } from '../core/approvals.js';
+import { listProfiles, type Profile } from '../core/profiles.js';
 import { logger } from '../core/logger.js';
 import { VERSION } from '../core/version.js';
 import { getServerSourceLabel, reindexServer, verifyServer } from '../app/services/servers.js';
@@ -69,6 +71,8 @@ interface TUIState {
   gateways:      GatewayConfig[];
   statuses:      Record<string, ServerStatus>;
   gatewayStatuses: Record<string, ServerStatus>;
+  profiles: Profile[];
+  pendingApprovals: ApprovalRecord[];
   selectedIndex: number;
   logTail:       string[];
   actionMsg:     string | null;
@@ -163,7 +167,7 @@ function buildFrame(state: TUIState): string {
   // ── Header ────────────────────────────────────────────────────────────────
   const runningCount = Object.values(state.statuses).filter((s) => s.running).length + Object.values(state.gatewayStatuses).filter((s) => s.running).length;
   const totalItems = state.servers.length + state.gateways.length;
-  const statsStr  = `${state.servers.length} servers · ${state.gateways.length} gateways · ${runningCount} running`;
+  const statsStr  = `${state.servers.length} servers · ${state.gateways.length} gateways · ${state.profiles.length} profiles · ${state.pendingApprovals.length} approvals · ${runningCount} running`;
   const verStr    = `v${VERSION}`;
   const brandStr  = `◆ hoolix`;
   // Visible header content: ' brandStr  statsStr '
@@ -279,18 +283,26 @@ function buildFrame(state: TUIState): string {
     addRow('Kind', 'gateway');
     addRow('Status', st.running && st.port ? `running on :${st.port}` : 'stopped', (v) => st.running ? `${A.green}${v}${A.reset}` : `${A.gray}${v}${A.reset}`);
     addRow('Backends', `${selectedGateway.backends.length} aggregated`);
+    addRow('Profiles', state.profiles.length ? state.profiles.map((profile) => profile.slug).slice(0, 3).join(', ') : 'none');
+    addRow('Approvals', state.pendingApprovals.length ? `${state.pendingApprovals.length} pending` : 'none');
     if (st.running && st.port) addRow('URL', `http://127.0.0.1:${st.port}/mcp`, (v) => `${A.cyan}${v}${A.reset}`);
     blank();
     for (const backend of selectedGateway.backends.slice(0, Math.max(1, mainRows - 9))) {
       addRow(backend.namespace, backend.slug);
     }
     blank();
-    const hintLine = pad(` ${B.dot} c copy config · s start/stop gateway · g new gateway`, rightW);
+    if (state.pendingApprovals[0]) {
+      const pending = state.pendingApprovals[0];
+      blank();
+      addRow('Pending', `${pending.profile}: ${pending.toolName}`);
+      addRow('Approval ID', pending.id);
+    }
+    const hintLine = pad(` ${B.dot} c copy config · s start/stop gateway · a approve`, rightW);
     rightRaw.push(hintLine);
     rightColored.push(
       ` ${A.dim}${B.dot} Press ${A.reset}${A.cyan}c${A.reset}${A.dim} config` +
       ` · ${A.reset}${A.cyan}s${A.reset}${A.dim} start/stop` +
-      ` · ${A.reset}${A.cyan}g${A.reset}${A.dim} new gateway${A.reset}` +
+      ` · ${A.reset}${A.cyan}a${A.reset}${A.dim} approve${A.reset}` +
       ' '.repeat(Math.max(0, rightW - 52)),
     );
   } else if (sel) {
@@ -449,7 +461,7 @@ function buildFrame(state: TUIState): string {
   // ── Key help bar ──────────────────────────────────────────────────────────
   out.push(`${B.ml}${B.h.repeat(innerW)}${B.mr}`);
 
-  const keyHelp = '↑↓/1-9 select · g gateway · s start/stop · c connect · x secrets/approvals · n new · t templates · r refresh · q quit';
+  const keyHelp = '↑↓/1-9 select · g gateway · s start/stop · c connect · a approve · A deny · x secrets · r refresh · q quit';
   const helpLine = pad(` ${keyHelp}`, innerW);
   out.push(`${B.v}${A.dim}${helpLine}${A.reset}${B.v}`);
 
@@ -474,6 +486,8 @@ async function refresh(state: TUIState): Promise<void> {
   try {
     state.servers = await listServers();
     state.gateways = await listGateways();
+    state.profiles = await listProfiles();
+    state.pendingApprovals = await listPendingApprovals();
     state.statuses = {};
     for (const s of state.servers) {
       try {
@@ -581,6 +595,25 @@ async function handleKey(key: string, state: TUIState): Promise<void> {
     const copied = await copyToClipboard(cmd);
     setAction(state, copied ? `Copied: ${cmd}` : `Run: ${cmd}`);
     setTimeout(() => { setAction(state, null); render(state); }, 3500);
+    return;
+  }
+
+  if (key === 'a' || key === 'A') {
+    const pending = state.pendingApprovals[0];
+    if (!pending) {
+      setAction(state, 'No pending approvals.');
+      setTimeout(() => { setAction(state, null); render(state); }, 2500);
+      return;
+    }
+    try {
+      const nextStatus = key === 'a' ? 'approved' : 'denied';
+      await decideApproval(pending.id, nextStatus);
+      setAction(state, `${nextStatus === 'approved' ? 'Approved' : 'Denied'} ${pending.id} (${pending.toolName})`);
+      await refresh(state);
+    } catch (e: any) {
+      setAction(state, `Approval update failed: ${e?.message || e}`, true);
+    }
+    setTimeout(() => { setAction(state, null); render(state); }, 3000);
     return;
   }
 
@@ -792,7 +825,7 @@ async function handleKey(key: string, state: TUIState): Promise<void> {
     if (selectedGateway) {
       const cmd = `hoolix gateway connect ${selectedGateway.slug} --client codex`;
       await copyToClipboard(cmd);
-      setAction(state, `Approvals are next-round; copied gateway connect command. Secrets stay on backing servers.`);
+      setAction(state, state.pendingApprovals.length ? `Pending approvals: ${state.pendingApprovals.length}. Press a to approve, A to deny.` : `No pending approvals. Secrets stay on backing servers.`);
       setTimeout(() => { setAction(state, null); render(state); }, 4000);
       return;
     }
@@ -859,6 +892,8 @@ export async function launchTUI(): Promise<void> {
     gateways:      [],
     statuses:      {},
     gatewayStatuses: {},
+    profiles: [],
+    pendingApprovals: [],
     selectedIndex: 0,
     logTail:       [],
     actionMsg:     null,

@@ -8,6 +8,8 @@ import { listServers } from '../core/registry.js';
 import { getServerDataDir, getServerCredentialsPath } from '../core/paths.js';
 import { listTemplates } from '../app/services/catalog.js';
 import { listGateways } from '../core/gateways.js';
+import { listProfiles } from '../core/profiles.js';
+import { listPendingApprovals } from '../core/approvals.js';
 import { listSourcePlugins } from '../sources/plugins.js';
 import { getCommunityTemplateDir } from '../catalog/community.js';
 import { getInstallMethod } from '../core/updater.js';
@@ -65,7 +67,7 @@ export async function cmdDoctor(json: boolean): Promise<void> {
     const testFile = path.join(paths.data, '.doctor-write-test');
     await fs.writeFile(testFile, 'ok');
     await fs.remove(testFile).catch(() => {});
-    results.paths = { data: paths.data, config: paths.config, servers: paths.servers, gateways: paths.gateways, cache: paths.cache, writable: true };
+    results.paths = { data: paths.data, config: paths.config, servers: paths.servers, gateways: paths.gateways, profiles: paths.profiles, cache: paths.cache, writable: true };
     checks.push({ name: 'paths', ok: true, detail: `data=${paths.data}` });
   } catch (e: any) {
     checks.push({ name: 'paths', ok: false, detail: e.message });
@@ -78,6 +80,25 @@ export async function cmdDoctor(json: boolean): Promise<void> {
     checks.push({ name: 'config', ok: true });
   } catch (e: any) {
     checks.push({ name: 'config', ok: false, detail: e.message });
+  }
+
+  try {
+    const profiles = await listProfiles();
+    const pendingApprovals = await listPendingApprovals();
+    results.profiles = { count: profiles.length, slugs: profiles.map((profile) => profile.slug) };
+    results.approvals = { pending: pendingApprovals.length };
+    checks.push({
+      name: 'profiles',
+      ok: true,
+      detail: profiles.length > 0 ? `${profiles.length} profile(s)` : 'none yet — create with hoolix profile create codex',
+    });
+    checks.push({
+      name: 'approvals',
+      ok: true,
+      detail: pendingApprovals.length > 0 ? `${pendingApprovals.length} pending approval(s)` : 'no pending approvals',
+    });
+  } catch (e: any) {
+    checks.push({ name: 'profiles', ok: false, detail: e.message || String(e) });
   }
 
   try {

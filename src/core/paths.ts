@@ -10,6 +10,7 @@ export interface AppPaths {
   config: string;
   servers: string; // per-slug dirs live here
   gateways: string; // per-gateway dirs live here
+  profiles: string; // profile configs live here
   cache: string;
 }
 
@@ -26,6 +27,7 @@ export function getPaths(): AppPaths {
   const data = process.env[DATA_DIR_ENV] || paths.data;
   const servers = path.join(data, 'servers');
   const gateways = path.join(data, 'gateways');
+  const profiles = path.join(data, 'profiles');
   const config = path.join(data, 'config.json');
   const cache = path.join(data, 'cache');
 
@@ -34,6 +36,7 @@ export function getPaths(): AppPaths {
     config,
     servers,
     gateways,
+    profiles,
     cache,
   };
 
@@ -49,6 +52,7 @@ export async function ensureDirectories(): Promise<AppPaths> {
   await fs.ensureDir(p.data);
   await fs.ensureDir(p.servers);
   await fs.ensureDir(p.gateways);
+  await fs.ensureDir(p.profiles);
   await fs.ensureDir(p.cache);
   return p;
 }
@@ -87,4 +91,16 @@ export function getGatewayRuntimePath(name: string): string {
 
 export function getGatewayDataDir(name: string): string {
   return path.join(getGatewayDir(name), 'data');
+}
+
+export function getProfileDir(name: string): string {
+  return path.join(getPaths().profiles, name);
+}
+
+export function getProfileConfigPath(name: string): string {
+  return path.join(getProfileDir(name), 'profile.json');
+}
+
+export function getApprovalsPath(): string {
+  return path.join(getPaths().data, 'approvals.json');
 }

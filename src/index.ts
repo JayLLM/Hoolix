@@ -141,6 +141,18 @@ async function main() {
       await cmdSecrets(args, jsonOutput);
       return;
     }
+    case 'profile':
+    case 'profiles': {
+      const { cmdProfile } = await import('./commands/profile.js');
+      await cmdProfile(args, jsonOutput);
+      return;
+    }
+    case 'approvals':
+    case 'approval': {
+      const { cmdApprovals } = await import('./commands/approvals.js');
+      await cmdApprovals(args, jsonOutput);
+      return;
+    }
     case 'rotate':
     case 'rotate-key': {
       const { cmdRotateKey } = await import('./commands/rotate.js');

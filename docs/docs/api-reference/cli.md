@@ -146,6 +146,7 @@ hoolix gateway list [--json]
 hoolix gateway start <name> [--port <n>] [--json]
 hoolix gateway stop <name> [--json]
 hoolix gateway connect <name> --client <target> [--project] [--dry-run] [--json]
+hoolix gateway connect <name> --client <target> --profile <profile> [--json]
 ```
 
 Creates and runs a unified local MCP gateway. A gateway aggregates configured `mcp-server` instances into one authenticated Streamable HTTP MCP endpoint.
@@ -157,6 +158,51 @@ hoolix gateway connect my-tools --client codex
 ```
 
 Gateway tools are namespaced as `<namespace>.<tool>`, such as `github.search_issues` or `filesystem.read_file`. Credentials remain on the backing servers; gateway config stores backend slugs, namespaces, and a separate gateway auth key.
+
+Use `--profile <name>` to emit a profile-specific bearer token. The gateway uses that token as the client identity and enforces the profile policy before forwarding tool calls.
+
+## profile
+
+```bash
+hoolix profile create <name> --include <namespace[,namespace]> [--approval writes|read-only|always-approve] [--gateway <name>] [--json]
+hoolix profile list [--json]
+hoolix profile edit <name> [--include ...] [--approval ...] [--rule <pattern=allow|deny|approve>] [--json]
+hoolix profile delete <name> [--json]
+```
+
+Profiles define per-agent access to gateway tools. `--include github,filesystem` expands to `github.*` and `filesystem.*`. Approval modes are:
+
+| Mode | Behavior |
+| --- | --- |
+| `writes` | Allows reads and queues likely write/mutation tools for approval |
+| `read-only` | Denies likely write/mutation tools |
+| `always-approve` | Queues every tool call for approval |
+
+Sandbox flags:
+
+| Flag | Description |
+| --- | --- |
+| `--fs-root <path>` | Allow filesystem/path-like arguments only inside this root |
+| `--block-path <path>` | Deny filesystem/path-like arguments under this path |
+| `--allow-domain <domain>` | Allow URL arguments only for this domain list |
+| `--block-domain <domain>` | Deny URL arguments for this domain |
+
+Rules are simple wildcard matches:
+
+```bash
+hoolix profile edit codex --rule "github.create_pull_request=approve"
+hoolix profile edit claude --rule "filesystem.delete*=deny"
+```
+
+## approvals
+
+```bash
+hoolix approvals list [--all] [--json]
+hoolix approvals approve <id> [--json]
+hoolix approvals deny <id> [--json]
+```
+
+When a profile-scoped gateway tool call requires approval, the gateway queues it and returns a pending approval response. Approving the record allows the same profile/tool/arguments call on retry; denying it blocks that exact retry.
 
 ## clients
 

@@ -38,6 +38,7 @@ Use the changelog to track released CLI flags, templates, transports, bundle for
 - **`hoolix gateway`** — aggregates configured MCP server templates into one authenticated local Streamable HTTP endpoint.
 - Tools are namespaced as `<namespace>.<tool>`, so multiple backing servers can be shared with Codex, Claude Code, Cursor, Grok Build, and other MCP-compatible agents through a single config entry.
 - The TUI now shows gateways alongside servers and supports gateway start/stop/connect actions.
+- **Client profiles and approvals** — profile-specific bearer tokens let each agent have its own tool access, approval rules, and basic sandbox boundaries. Pending tool calls are reviewed with `hoolix approvals`.
 
 ### Credentials & Secrets
 - **`hoolix secrets set/list/remove`** — credential management stored separately from metadata (0600 `credentials.json`).

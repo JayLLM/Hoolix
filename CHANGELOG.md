@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`hoolix gateway` MVP** — create, list, start, stop, and connect a unified local MCP gateway that aggregates configured `mcp-server` instances behind one authenticated Streamable HTTP endpoint with namespaced tools.
 - **Gateway-aware TUI** — the terminal dashboard now shows servers and gateways in one left panel, gateway details/backends on the right, and gateway-aware `g`, `s`, and `c` actions.
+- **Client profiles and approval queue** — `hoolix profile` creates per-agent gateway identities with allowed tools, approval modes, policy rules, and sandbox boundaries; `hoolix approvals` reviews and decides pending gateway tool calls.
 
 ### Fixed
 

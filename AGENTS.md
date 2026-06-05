@@ -221,7 +221,11 @@ Users can drop custom `*.json` files into `~/.hoolix/templates/` (or override wi
 - Gateway tool names must be collision-free and namespaced as `<namespace>.<toolName>`.
 - Gateways use their own `data/audit.log`, `data/rate-state.json`, and `.runtime.json`.
 - `hoolix connect <gateway>` and `hoolix gateway connect <gateway>` should both prefer the gateway HTTP endpoint.
-- Human approvals and policy are future gateway features; do not fake policy enforcement in unrelated commands.
+- Client profiles live separately under `profiles/<slug>/profile.json` and carry profile-specific bearer tokens, allowed tool patterns, approval mode, policy rules, and sandbox boundaries.
+- `hoolix gateway connect <gateway> --profile <profile>` emits the profile bearer token; the gateway auth key remains backward compatible and bypasses profile policy.
+- Gateway policy enforcement happens only in `gateway-host.ts` before forwarding `tools/call`.
+- Approval records live in the app-level `approvals.json`; approved matching calls are consumed on retry, denied matching calls are blocked.
+- Keep profile policy simple and auditable: wildcard match + `allow | deny | approve`, no heavy policy dependency without an ADR.
 
 ### 11. Shell Completions + Bundle
 

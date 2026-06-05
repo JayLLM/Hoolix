@@ -10,6 +10,9 @@ import { getGatewayDataDir, getGatewayRuntimePath, getServerDir } from '../core/
 import { getServerMetadata } from '../core/registry.js';
 import { getTemplate } from '../app/services/catalog.js';
 import { loadCredentials, interpolateRunConfig } from '../app/services/credentials.js';
+import { findProfileByAuthKey, type Profile } from '../core/profiles.js';
+import { evaluatePolicy } from '../core/policy.js';
+import { consumeMatchingApproval, findDeniedMatchingApproval, hashArgs, previewArgs, queueApproval } from '../core/approvals.js';
 
 export interface GatewayHostOptions {
   slug: string;
@@ -23,6 +26,11 @@ interface JsonRpcRequest {
   id?: string | number | null;
   method?: string;
   params?: Record<string, unknown>;
+}
+
+interface RequestIdentity {
+  profile: Profile | null;
+  authType: 'gateway' | 'profile';
 }
 
 interface JsonRpcResponse {
@@ -202,6 +210,7 @@ export async function startGatewayHost(opts: GatewayHostOptions): Promise<void> 
   const config = await getGateway(slug);
   const children: GatewayChild[] = [];
   const toolOwners = new Map<string, { child: GatewayChild; originalName: string }>();
+  const identities = new WeakMap<Request, RequestIdentity>();
   let initializeParams: Record<string, unknown> | null = null;
 
   logger.info(`Starting gateway "${slug}" on ${bindHost}:${port}`);
@@ -278,7 +287,7 @@ export async function startGatewayHost(opts: GatewayHostOptions): Promise<void> 
     return ok(id, { tools });
   }
 
-  async function callTool(req: JsonRpcRequest): Promise<JsonRpcResponse> {
+  async function callTool(req: JsonRpcRequest, identity: RequestIdentity): Promise<JsonRpcResponse> {
     await ensureChildrenInitialized();
     const params = (req.params ?? {}) as { name?: unknown; arguments?: unknown };
     const namespacedName = String(params.name ?? '');
@@ -288,15 +297,68 @@ export async function startGatewayHost(opts: GatewayHostOptions): Promise<void> 
     const owner = toolOwners.get(namespacedName);
     if (!owner) return fail(req.id ?? null, -32602, `Unknown gateway tool "${namespacedName}". Next: call tools/list.`);
 
-    await audit('gateway_tool_call', { toolName: namespacedName, backend: owner.child.slug });
+    const args = params.arguments ?? {};
+    const decision = evaluatePolicy({
+      profile: identity.profile,
+      gateway: slug,
+      toolName: namespacedName,
+      args,
+    });
+
+    if (decision.effect === 'deny') {
+      await audit('gateway_policy_deny', { toolName: namespacedName, backend: owner.child.slug, profile: identity.profile?.slug, reason: decision.reason });
+      return fail(req.id ?? null, -32001, `Policy denied ${namespacedName}: ${decision.reason}`);
+    }
+
+    if (decision.effect === 'approve' && identity.profile) {
+      const argumentsHash = await hashArgs(args);
+      const denied = await findDeniedMatchingApproval({
+        gateway: slug,
+        profile: identity.profile.slug,
+        toolName: namespacedName,
+        argumentsHash,
+      });
+      if (denied) {
+        await audit('gateway_approval_denied', { approvalId: denied.id, toolName: namespacedName, backend: owner.child.slug, profile: identity.profile.slug });
+        return fail(req.id ?? null, -32002, `Tool call was denied by human approval (${denied.id}).`);
+      }
+      const approved = await consumeMatchingApproval({
+        gateway: slug,
+        profile: identity.profile.slug,
+        toolName: namespacedName,
+        argumentsHash,
+      });
+      if (!approved) {
+        const approval = await queueApproval({
+          gateway: slug,
+          profile: identity.profile.slug,
+          toolName: namespacedName,
+          backend: owner.child.slug,
+          argumentsPreview: previewArgs(args),
+          argumentsHash,
+        });
+        await audit('gateway_approval_pending', { approvalId: approval.id, toolName: namespacedName, backend: owner.child.slug, profile: identity.profile.slug, reason: decision.reason });
+        return ok(req.id ?? null, {
+          pendingApproval: true,
+          approvalId: approval.id,
+          toolName: namespacedName,
+          message: `Tool call requires approval. Run: hoolix approvals approve ${approval.id}`,
+        });
+      }
+      await audit('gateway_approval_consumed', { approvalId: approved.id, toolName: namespacedName, backend: owner.child.slug, profile: identity.profile.slug });
+    } else if (decision.effect === 'approve' && !identity.profile) {
+      await audit('gateway_policy_approval_skipped', { toolName: namespacedName, backend: owner.child.slug, reason: 'gateway key has no profile identity' });
+    }
+
+    await audit('gateway_tool_call', { toolName: namespacedName, backend: owner.child.slug, profile: identity.profile?.slug, authType: identity.authType });
     const response = await owner.child.request('tools/call', {
       name: owner.originalName,
-      arguments: params.arguments ?? {},
+      arguments: args,
     });
     return { ...response, id: req.id ?? null };
   }
 
-  async function handle(req: JsonRpcRequest): Promise<JsonRpcResponse | null> {
+  async function handle(req: JsonRpcRequest, identity: RequestIdentity): Promise<JsonRpcResponse | null> {
     const id = req.id ?? null;
     switch (req.method) {
       case 'initialize':
@@ -314,7 +376,7 @@ export async function startGatewayHost(opts: GatewayHostOptions): Promise<void> 
       case 'tools/list':
         return listTools(id);
       case 'tools/call':
-        return callTool(req);
+        return callTool(req, identity);
       default:
         return fail(id, -32601, `Gateway does not implement "${req.method ?? 'unknown'}".`);
     }
@@ -341,9 +403,18 @@ export async function startGatewayHost(opts: GatewayHostOptions): Promise<void> 
     const headerKey = authHeader?.match(/^Bearer\s+/i)
       ? authHeader.replace(/^Bearer\s+/i, '')
       : c.req.header('X-MCP-Key');
-    if (!headerKey || headerKey !== authKey) {
+    let identity: RequestIdentity | null = null;
+    if (headerKey === authKey) {
+      identity = { profile: null, authType: 'gateway' };
+    } else if (headerKey) {
+      const profile = await findProfileByAuthKey(headerKey);
+      if (profile) identity = { profile, authType: 'profile' };
+    }
+
+    if (!identity) {
       return c.json({ error: 'Unauthorized. Provide valid Authorization: Bearer <key> or X-MCP-Key header.' }, 401);
     }
+    identities.set(c.req.raw, identity);
     if (!(await checkRateLimit())) {
       await audit('rate_limited', { limit: RATE_LIMIT, windowSec: Math.floor(RATE_WINDOW_MS / 1000) });
       c.header('Retry-After', String(Math.ceil(RATE_WINDOW_MS / 1000)));
@@ -364,10 +435,12 @@ export async function startGatewayHost(opts: GatewayHostOptions): Promise<void> 
     const preferSSE = (c.req.header('Accept') ?? '').includes('text/event-stream');
     try {
       if (Array.isArray(body)) {
-        const responses = (await Promise.all(body.map((item) => handle(item as JsonRpcRequest)))).filter(Boolean);
+        const identity = identities.get(c.req.raw) ?? { profile: null, authType: 'gateway' };
+        const responses = (await Promise.all(body.map((item) => handle(item as JsonRpcRequest, identity)))).filter(Boolean);
         return preferSSE ? jsonRpcToSSE(responses) : c.json(responses);
       }
-      const response = await handle(body as JsonRpcRequest);
+      const identity = identities.get(c.req.raw) ?? { profile: null, authType: 'gateway' };
+      const response = await handle(body as JsonRpcRequest, identity);
       if (response === null) return new Response(null, { status: 204 });
       return preferSSE ? jsonRpcToSSE(response) : c.json(response);
     } catch (e: unknown) {

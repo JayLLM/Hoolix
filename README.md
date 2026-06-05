@@ -155,6 +155,17 @@ hoolix gateway connect my-tools --client codex
 
 The gateway runs a single authenticated Streamable HTTP MCP endpoint, lists tools with namespaces such as `github.search_issues` and `filesystem.read_file`, and writes gateway audit/rate-limit data separately from backing servers.
 
+Add a client profile when an agent should have its own identity, approvals, and sandbox rules:
+
+```bash
+hoolix profile create codex --include github,filesystem --approval writes
+hoolix gateway connect my-tools --client codex --profile codex
+hoolix approvals list
+hoolix approvals approve appr_...
+```
+
+Profiles can restrict tool namespaces, require approval for writes or every call, and define basic sandbox boundaries such as filesystem roots, blocked paths, and allowed or blocked network domains.
+
 ### 5. Ask Your Agent
 
 ```text
@@ -228,6 +239,9 @@ hoolix create "Private Docs" \
 | `hoolix gateway create <name> --include <slug>` | Aggregate configured mcp-server instances behind one endpoint |
 | `hoolix gateway start <name>` | Start the unified gateway HTTP host |
 | `hoolix gateway connect <name> --client codex` | Wire any MCP client to the single gateway |
+| `hoolix profile create <name>` | Create a per-agent profile with tool access, approval, and sandbox rules |
+| `hoolix approvals list` | Review pending gateway tool calls |
+| `hoolix approvals approve <id>` | Allow a pending profile-scoped tool call |
 | `hoolix secrets set <slug> <key>` | Store or rotate a credential (masked, 0600) |
 | `hoolix reindex <slug>` | Refresh sources and rebuild the index |
 | `hoolix bundle export <slugs…>` | Export multiple servers into one bundle |

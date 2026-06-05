@@ -24,7 +24,7 @@ type Shell = (typeof SUPPORTED_SHELLS)[number];
 const COMMANDS = [
   'create', 'install', 'list', 'info', 'delete',
   'start', 'stop', 'reindex', 'verify', 'rotate',
-  'connect', 'clients', 'client', 'secrets', 'trial',
+  'connect', 'clients', 'client', 'secrets', 'profile', 'profiles', 'approvals', 'approval', 'trial',
   'stats', 'audit', 'export', 'import', 'bundle',
   'doctor', 'update', 'uninstall', 'gui', 'gateway',
   'templates', 'completion', 'version', 'help',
@@ -65,6 +65,10 @@ _hoolix_get_templates() {
 
 _hoolix_get_gateways() {
   hoolix gateway list --json 2>/dev/null | grep '"slug"' | sed 's/.*"slug": *"\\([^"]*\\)".*/\\1/'
+}
+
+_hoolix_get_profiles() {
+  hoolix profile list --json 2>/dev/null | grep '"slug"' | sed 's/.*"slug": *"\\([^"]*\\)".*/\\1/'
 }
 
 _hoolix_completions() {
@@ -138,6 +142,21 @@ _hoolix_completions() {
         return 0
       fi
       ;;
+    profile|profiles)
+      if [[ $COMP_CWORD -eq 2 ]]; then
+        COMPREPLY=($(compgen -W "create list edit delete" -- "$cur"))
+        return 0
+      elif [[ $COMP_CWORD -eq 3 && "\${COMP_WORDS[2]}" =~ ^(edit|delete)$ ]]; then
+        COMPREPLY=($(compgen -W "$(_hoolix_get_profiles)" -- "$cur"))
+        return 0
+      fi
+      ;;
+    approvals|approval)
+      if [[ $COMP_CWORD -eq 2 ]]; then
+        COMPREPLY=($(compgen -W "list approve deny" -- "$cur"))
+        return 0
+      fi
+      ;;
     install)
       if [[ $COMP_CWORD -eq 2 ]]; then
         COMPREPLY=($(compgen -W "$(_hoolix_get_templates)" -- "$cur"))
@@ -160,7 +179,9 @@ _hoolix_completions() {
   case "$first" in
     start)    COMPREPLY=($(compgen -W "--port --transport --proxy --json" -- "$cur")) ;;
     connect)  COMPREPLY=($(compgen -W "--client --dry-run --yes --json" -- "$cur")) ;;
-    gateway)  COMPREPLY=($(compgen -W "create list start stop connect --include --port --client --json" -- "$cur")) ;;
+    gateway)  COMPREPLY=($(compgen -W "create list start stop connect --include --port --client --profile --json" -- "$cur")) ;;
+    profile|profiles) COMPREPLY=($(compgen -W "create list edit delete --include --gateway --approval --rule --fs-root --block-path --allow-domain --block-domain --json" -- "$cur")) ;;
+    approvals|approval) COMPREPLY=($(compgen -W "list approve deny --all --json" -- "$cur")) ;;
     create)   COMPREPLY=($(compgen -W "--url --template --source --input --credential --name --yes --json" -- "$cur")) ;;
     install)  COMPREPLY=($(compgen -W "--name --input --credential --yes" -- "$cur")) ;;
     export)   COMPREPLY=($(compgen -W "--file --team --strip-key --json" -- "$cur")) ;;
@@ -213,6 +234,8 @@ _hoolix() {
     'connect:Wire into an AI client'
     'clients:Client management (list)'
     'client:Client management (status)'
+    'profile:Client profile policies'
+    'approvals:Human approval queue'
     'secrets:Credential management (list|set|remove)'
     'bundle:Multi-server bundle export/import'
     'trial:One-click demo server'
@@ -287,6 +310,21 @@ _hoolix() {
           elif [[ $CURRENT -eq 3 && ( $words[2] == start || $words[2] == stop || $words[2] == connect ) ]]; then
             slugs=($(hoolix gateway list --json 2>/dev/null | grep '"slug"' | sed 's/.*"slug": *"\\([^"]*\\)".*/\\1/'))
             _describe 'gateway' slugs
+          fi
+          ;;
+        profile|profiles)
+          if [[ $CURRENT -eq 2 ]]; then
+            subcmds=('create:Create a profile' 'list:List profiles' 'edit:Edit a profile' 'delete:Delete a profile')
+            _describe 'subcommand' subcmds
+          elif [[ $CURRENT -eq 3 && ( $words[2] == edit || $words[2] == delete ) ]]; then
+            slugs=($(hoolix profile list --json 2>/dev/null | grep '"slug"' | sed 's/.*"slug": *"\\([^"]*\\)".*/\\1/'))
+            _describe 'profile' slugs
+          fi
+          ;;
+        approvals|approval)
+          if [[ $CURRENT -eq 2 ]]; then
+            subcmds=('list:List pending approvals' 'approve:Approve a call' 'deny:Deny a call')
+            _describe 'subcommand' subcmds
           fi
           ;;
         secrets)
@@ -373,6 +411,14 @@ end
 complete -c hoolix -n "__fish_seen_subcommand_from gateway; and not __fish_seen_subcommand_from create list start stop connect" -a "create list start stop connect"
 complete -c hoolix -n "__fish_seen_subcommand_from gateway; and __fish_seen_subcommand_from start stop connect; and test (count (commandline -opc)) -eq 3" -a "(__hoolix_gateways)"
 
+function __hoolix_profiles
+  hoolix profile list --json 2>/dev/null | string match -r '"slug":\\s*"([^"]+)"' | string replace -r '.*"slug":\\s*"([^"]+)".*' '$1'
+end
+
+complete -c hoolix -n "__fish_seen_subcommand_from profile profiles; and not __fish_seen_subcommand_from create list edit delete" -a "create list edit delete"
+complete -c hoolix -n "__fish_seen_subcommand_from profile profiles; and __fish_seen_subcommand_from edit delete; and test (count (commandline -opc)) -eq 3" -a "(__hoolix_profiles)"
+complete -c hoolix -n "__fish_seen_subcommand_from approvals approval; and not __fish_seen_subcommand_from list approve deny" -a "list approve deny"
+
 # secrets subcommands + slug arg
 complete -c hoolix -n "__fish_seen_subcommand_from secrets; and not __fish_seen_subcommand_from list set remove" -a "list set remove"
 complete -c hoolix -n "__fish_seen_subcommand_from secrets; and __fish_seen_subcommand_from list set remove; and test (count (commandline -opc)) -eq 3" -a "(__hoolix_slugs)"
@@ -392,6 +438,10 @@ complete -c hoolix -n "__fish_seen_subcommand_from connect" -l client -a "${CLIE
 complete -c hoolix -n "__fish_seen_subcommand_from gateway" -l include -d "Server slug to aggregate"
 complete -c hoolix -n "__fish_seen_subcommand_from gateway" -l port -d "Gateway port"
 complete -c hoolix -n "__fish_seen_subcommand_from gateway" -l client -a "${CLIENTS.join(' ')}" -d "AI client"
+complete -c hoolix -n "__fish_seen_subcommand_from gateway connect" -l profile -a "(__hoolix_profiles)" -d "Client profile"
+complete -c hoolix -n "__fish_seen_subcommand_from profile profiles" -l include -d "Allowed tool namespace"
+complete -c hoolix -n "__fish_seen_subcommand_from profile profiles" -l approval -a "writes read-only always" -d "Approval mode"
+complete -c hoolix -n "__fish_seen_subcommand_from approvals approval" -l all -d "Show all approvals"
 complete -c hoolix -n "__fish_seen_subcommand_from start" -l port -d "Port number"
 complete -c hoolix -n "__fish_seen_subcommand_from start" -l transport -a "http stdio" -d "Transport type"
 complete -c hoolix -n "__fish_seen_subcommand_from start" -l proxy -d "Wrap behind HTTP (mcp-server kind)"
@@ -467,6 +517,13 @@ Register-ArgumentCompleter -Native -CommandName hoolix -ScriptBlock {
     } catch {}
   }
 
+  function Get-HoolixProfiles {
+    try {
+      $json = (hoolix profile list --json 2>$null) -join ''
+      [regex]::Matches($json, '"slug"\\s*:\\s*"([^"]+)"') | ForEach-Object { $_.Groups[1].Value }
+    } catch {}
+  }
+
   # First argument: top-level commands
   if ($argCount -le 2) { return Complete-Words $allCommands }
 
@@ -488,7 +545,25 @@ Register-ArgumentCompleter -Native -CommandName hoolix -ScriptBlock {
     'gateway' {
       if ($argCount -eq 3) { return Complete-Words @('create','list','start','stop','connect') }
       if ($argCount -eq 4 -and @('start','stop','connect') -contains $elements[2].ToString()) { return Complete-Words (Get-HoolixGateways) }
-      return Complete-Words @('--include','--port','--client','--json')
+      return Complete-Words @('--include','--port','--client','--profile','--json')
+    }
+    'profile' {
+      if ($argCount -eq 3) { return Complete-Words @('create','list','edit','delete') }
+      if ($argCount -eq 4 -and @('edit','delete') -contains $elements[2].ToString()) { return Complete-Words (Get-HoolixProfiles) }
+      return Complete-Words @('--include','--gateway','--approval','--rule','--fs-root','--block-path','--allow-domain','--block-domain','--json')
+    }
+    'profiles' {
+      if ($argCount -eq 3) { return Complete-Words @('create','list','edit','delete') }
+      if ($argCount -eq 4 -and @('edit','delete') -contains $elements[2].ToString()) { return Complete-Words (Get-HoolixProfiles) }
+      return Complete-Words @('--include','--gateway','--approval','--rule','--fs-root','--block-path','--allow-domain','--block-domain','--json')
+    }
+    'approvals' {
+      if ($argCount -eq 3) { return Complete-Words @('list','approve','deny') }
+      return Complete-Words @('--all','--json')
+    }
+    'approval' {
+      if ($argCount -eq 3) { return Complete-Words @('list','approve','deny') }
+      return Complete-Words @('--all','--json')
     }
     'secrets' {
       if ($argCount -eq 3) { return Complete-Words @('list','set','remove') }
