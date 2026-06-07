@@ -1,105 +1,27 @@
 {
-  "name": "hoolix",
-  "version": "0.0.8",
-  "description": "Forge documentation into powerful, secure Hoolix MCP servers. Production-grade CLI for turning docs URLs into hostable MCP servers for Grok, Claude, Cursor, and other agents.",
-  "keywords": [
-    "mcp",
-    "model-context-protocol",
-    "cli",
-    "tui",
-    "documentation",
-    "rag",
-    "llms.txt",
-    "ai-agents",
-    "claude",
-    "cursor",
-    "grok",
-    "filesystem",
-    "github",
-    "postgres"
-  ],
-  "homepage": "https://github.com/JayLLM/hoolix",
-  "bugs": "https://github.com/JayLLM/hoolix/issues",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/JayLLM/hoolix.git"
-  },
-  "license": "MIT",
-  "author": "Hoolix contributors",
-  "type": "module",
-  "main": "dist/index.js",
-  "exports": {
-    ".": "./dist/index.js"
-  },
-  "bin": {
-    "hoolix": "./bin/hoolix.js"
-  },
-  "files": [
-    "bin",
-    "dist",
-    "README.md",
-    "LICENSE",
-    "STABILITY.md"
-  ],
+  "name": "hoolix-landing",
+  "version": "0.1.0",
+  "private": true,
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
-    "build:watch": "tsc -p tsconfig.json --watch",
-    "dev": "tsx src/index.ts",
-    "dev:bun": "bun run src/index.ts",
-    "start": "node dist/index.js",
-    "lint": "biome lint . || echo 'biome not configured yet'",
-    "test": "vitest run",
-    "test:watch": "vitest --watch",
-    "clean": "node -e \"const fs=require('fs'); fs.rmSync('dist',{recursive:true,force:true}); fs.rmSync('dist-bin',{recursive:true,force:true}); console.log('Cleaned dist/ dist-bin/')\"",
-    "build:binary": "bun build --compile src/index.ts --outfile dist-bin/hoolix --minify",
-    "build:binary:win": "bun build --compile src/index.ts --outfile dist-bin/hoolix.exe --minify",
-    "build:binary:linux": "bun build --compile src/index.ts --outfile dist-bin/hoolix --minify",
-    "build:binary:mac": "bun build --compile src/index.ts --outfile dist-bin/hoolix --minify",
-    "postinstall": "node bin/postinstall.js",
-    "prepublishOnly": "npm run build",
-    "release": "release-it",
-    "release:beta": "release-it --preRelease=beta --github.preRelease=true",
-    "release:dry": "release-it --dry-run",
-    "release:ci": "release-it --ci",
-    "test:e2e": "vitest run --config vitest.e2e.config.ts"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
   },
   "dependencies": {
-    "@cfworker/json-schema": "^4.1.1",
-    "@clack/prompts": "^1.5.0",
-    "@hono/node-server": "^2.0.4",
-    "@modelcontextprotocol/server": "^1.0.0 || ^2.0.0-alpha",
-    "@mozilla/readability": "^0.6.0",
-    "chalk": "^5.6.2",
-    "consola": "^3.4.2",
-    "env-paths": "^4.0.0",
-    "fs-extra": "^11.3.5",
-    "fuse.js": "^7.1.0",
-    "hono": "^4.12.23",
-    "jsdom": "^29.1.1",
-    "ps-list": "^9.0.0",
-    "@huggingface/transformers": "^4.2.0",
-    "tree-kill": "^1.2.2",
-    "turndown": "^7.2.4",
-    "turndown-plugin-gfm": "^1.0.2",
-    "zod": "^4.4.3"
+    "next": "14.2.5",
+    "react": "^18",
+    "react-dom": "^18"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.16",
-    "@release-it/keep-a-changelog": "^7.1.0",
-    "@types/fs-extra": "^11.0.4",
-    "@types/jsdom": "^28.0.3",
-    "@types/node": "^25.9.1",
-    "@types/react": "^19.2.16",
-    "@types/turndown": "^5.0.5",
-    "react-devtools-core": "^7.0.1",
-    "release-it": "^20.2.0",
-    "tsx": "^4.22.4",
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.8"
-  },
-  "engines": {
-    "node": ">=20.0.0"
-  },
-  "packageManager": "bun@1.2.0"
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "autoprefixer": "^10.4.19",
+    "eslint": "^8",
+    "eslint-config-next": "14.2.5",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5"
+  }
 }
