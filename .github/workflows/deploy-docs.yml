@@ -57,7 +57,7 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
 
 # Notes for repo admin (one-time setup):
 # 1. Go to repo Settings > Pages and set "Source" / "Build and deployment" > "GitHub Actions" (not a branch).
