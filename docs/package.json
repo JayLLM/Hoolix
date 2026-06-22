@@ -28,7 +28,7 @@
     "@docusaurus/module-type-aliases": "^3.10.1",
     "@docusaurus/tsconfig": "^3.10.1",
     "@docusaurus/types": "^3.10.1",
-    "@types/node": "^25.9.1",
+    "@types/node": "^26.0.0",
     "autoprefixer": "^10.4.19",
     "postcss": "^8.4.38",
     "postcss-import": "^16.1.0",
