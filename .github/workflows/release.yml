@@ -218,7 +218,7 @@ jobs:
       # setup-node MUST come before any npm publish step so it writes ~/.npmrc
       # with the registry auth token.
       - name: Setup Node.js with npm registry auth
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
@@ -279,7 +279,7 @@ jobs:
           ref: ${{ needs.prepare-release.outputs.tag }}
 
       - name: Setup Node.js (for SBOM generation)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '20'
 
